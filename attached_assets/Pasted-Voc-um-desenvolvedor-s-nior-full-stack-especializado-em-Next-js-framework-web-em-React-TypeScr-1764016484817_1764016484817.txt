@@ -1,0 +1,215 @@
+Você é um desenvolvedor sênior full-stack especializado em Next.js (framework web em React), TypeScript (linguagem de programação tipada em JavaScript), PostgreSQL (banco de dados relacional) e OpenRouter (roteador de modelos de IA – inteligência artificial).
+
+Quero que você CRIE um exemplo COMPLETO e DIDÁTICO de um sistema simples com as seguintes características:
+
+========================================
+1. OBJETIVO GERAL
+========================================
+- Criar uma aplicação Next.js (pode ser App Router ou Pages Router, escolha o que for mais simples e indique claramente qual usou) que:
+  1. Tenha uma página web com um chat simples em HTML (sem frescura de design, apenas funcional).
+  2. Use o OpenRouter, com o SDK oficial "@openrouter/sdk", para conversar com um modelo de linguagem.
+  3. Implemente um fluxo de RAG (Retrieval-Augmented Generation – geração aumentada por recuperação) no **CASO 3**:
+     - Backend + IA cooperando:
+       - A IA interpreta a mensagem e decide quando chamar uma função (function calling / tool calling).
+       - O backend executa essa função consultando um banco PostgreSQL.
+       - O resultado volta para a IA que monta a resposta final para o usuário.
+  4. Mostre no backend, por logs detalhados, TUDO o que está acontecendo:
+     - Requisição recebida.
+     - Mensagens enviadas para o modelo.
+     - Tools (funções) que o modelo pediu para chamar.
+     - Queries (consultas) no banco.
+     - Resposta final enviada ao front-end.
+
+Explique TUDO em português, com comentários no código.
+
+========================================
+2. TECNOLOGIAS E DEPENDÊNCIAS
+========================================
+Use pelo menos:
+
+- Next.js (React, com TypeScript).
+- "@openrouter/sdk" para falar com o OpenRouter.
+- "pg" para conectar ao PostgreSQL (sem ORM – mapeador objeto-relacional – para simplificar).
+- Node.js padrão do Next.js.
+
+Explique também quais comandos devo rodar (por exemplo `npm install ...`) e quais variáveis de ambiente criar, como:
+
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_SITE_URL`
+- `OPENROUTER_SITE_NAME`
+- `DATABASE_URL` (string de conexão do PostgreSQL)
+
+========================================
+3. BANCO DE DADOS POSTGRESQL
+========================================
+Quero um exemplo de banco mínimo, com RAG simples:
+
+1. Banco PostgreSQL com uma tabela, por exemplo `faqs` (perguntas e respostas):
+   - `id` (serial, chave primária).
+   - `question` (texto).
+   - `answer` (texto).
+   - `created_at` (timestamp, padrão NOW).
+
+2. Crie o SQL para:
+   - Criar a tabela `faqs`.
+   - Inserir alguns registros de exemplo (por exemplo 3 a 5 linhas):
+     - Perguntas relacionadas a um sistema fictício (por exemplo “Como redefinir senha?”, “Como cadastrar uma nova ideia?” etc.).
+
+3. Não precisa implementar embeddings (vetores) para esse exemplo; assuma que a função de busca vai fazer algo simples:
+   - Por exemplo, buscar por `ILIKE` (busca textual) com a palavra-chave derivada da pergunta do usuário.
+
+Explique:
+- Como criar o banco e a tabela (SQL).
+- Onde configurar `DATABASE_URL` no projeto.
+
+========================================
+4. FLUXO DE RAG – CASO 3 (BACKEND + IA COOPERANDO)
+========================================
+Implemente o fluxo completo com Function Calling / Tool Calling, assim:
+
+1. FRONT-END:
+   - Página `chat` simples:
+     - Um `<form>` com:
+       - `<textarea>` ou `<input>` para a pergunta do usuário.
+       - Um botão “Enviar”.
+     - Uma área que mostra o histórico de mensagens:
+       - Mensagens do usuário.
+       - Respostas da IA.
+     - Pode usar apenas HTML + CSS básico (ou Tailwind se preferir, mas mantenha simples).
+
+2. BACKEND – ROTA DE API:
+   - Crie uma rota de API, por exemplo `/api/chat`.
+   - Ela deve:
+     1) Receber a mensagem do usuário (via POST em JSON).
+     2) Logar no console:
+        - A mensagem recebida.
+     3) Chamar o modelo via OpenRouter usando o SDK "@openrouter/sdk", com tool calling:
+        - Defina uma tool (função) chamada, por exemplo, `searchFaqs`.
+        - Descrição: “Busca perguntas e respostas no banco de dados PostgreSQL”.
+        - Parâmetros:
+          - `query` (string) – texto de busca.
+          - `limit` (number) – máximo de registros.
+
+   - O modelo deve:
+     - Ler a pergunta do usuário.
+     - Se fizer sentido, solicitar o uso da tool `searchFaqs` com argumentos.
+   - Sua rota de API deve:
+     - Detectar que o modelo pediu a tool.
+     - Logar no console:
+       - Que a tool foi chamada.
+       - Quais argumentos foram enviados.
+     - Executar, em código real, a função `searchFaqs`:
+       - Conectar ao PostgreSQL usando `pg`.
+       - Rodar um `SELECT` filtrando `question` por `ILIKE` com a `query` recebida, limitado a `limit`.
+       - Logar a query e o resultado (em forma sanitizada, sem expor credenciais).
+     - Enviar esse resultado de volta ao modelo como mensagem de tool (retorno da função).
+     - Fazer uma segunda chamada ao modelo para gerar a resposta final para o usuário, usando os resultados da função como contexto.
+     - Logar:
+       - O payload enviado na segunda chamada.
+       - A resposta final do modelo.
+
+3. RESPOSTA PARA O FRONT:
+   - A rota `/api/chat` deve devolver o JSON com:
+     - `messages` (histórico simples, ou pelo menos a última resposta da IA).
+     - Opcionalmente um campo `debug` com parte das informações de contexto, se quiser.
+
+========================================
+5. DETALHES DE IMPLEMENTAÇÃO NO BACKEND
+========================================
+Explique com detalhes e implemente:
+
+1. Arquivo de configuração do OpenRouter:
+   - Por exemplo: `lib/openrouter.ts`.
+   - Usando:
+     ```ts
+     import { OpenRouter } from '@openrouter/sdk';
+     const openRouter = new OpenRouter({
+       apiKey: process.env.OPENROUTER_API_KEY!,
+       defaultHeaders: {
+         'HTTP-Referer': process.env.OPENROUTER_SITE_URL!,
+         'X-Title': process.env.OPENROUTER_SITE_NAME!,
+       },
+     });
+     export default openRouter;
+     ```
+   - Se a assinatura oficial do SDK for diferente, ajuste, mas EXPLIQUE.
+
+2. Arquivo de conexão com PostgreSQL:
+   - Por exemplo: `lib/db.ts`.
+   - Usar `pg.Pool`:
+     ```ts
+     import { Pool } from 'pg';
+
+     export const pool = new Pool({
+       connectionString: process.env.DATABASE_URL,
+     });
+     ```
+   - Implementar a função `searchFaqs(query: string, limit: number)`:
+     - Fazer o `SELECT`.
+     - Logar a consulta.
+     - Retornar os resultados em formato simples (array de objetos com `question` e `answer`).
+
+3. Rota de API (`/api/chat`):
+   - Mostre o código completo da rota.
+   - Comente cada etapa:
+     - Leitura do body da requisição.
+     - Primeira chamada ao modelo com tools.
+     - Verificação se o modelo pediu uma tool.
+     - Execução da função que consulta o banco.
+     - Segunda chamada ao modelo com o resultado da tool.
+     - Retorno da resposta ao front.
+
+4. Logs:
+   - Use `console.log` ou outro logger simples.
+   - Inclua mensagens como:
+     - `[REQUEST] Mensagem do usuário: ...`
+     - `[OPENROUTER] Primeira chamada – payload: ...`
+     - `[OPENROUTER] Tool chamada: searchFaqs com args: ...`
+     - `[DB] Executando query: ...`
+     - `[DB] Resultados: ...`
+     - `[OPENROUTER] Segunda chamada – payload: ...`
+     - `[RESPONSE] Resposta final para o usuário: ...`
+
+========================================
+6. DETALHES DO FRONT-END (PÁGINA DE CHAT)
+========================================
+Implemente:
+
+1. Uma página `app/chat/page.tsx` (ou similar, se usar Pages Router, explique o caminho).
+2. Código React simples:
+   - Estado para:
+     - Mensagem atual do input.
+     - Lista de mensagens (array com role: "user" | "assistant" e content).
+   - Ao enviar o formulário:
+     - Faz um `fetch('/api/chat', { method: 'POST', body: JSON.stringify({ message }) })`.
+     - Atualiza o histórico de mensagens com:
+       - Mensagem do usuário.
+       - Resposta da IA vinda da API.
+3. HTML simples:
+   - Listagem das mensagens em `<div>`s.
+   - Input para digitar.
+   - Botão enviar.
+4. Explique como rodar o projeto:
+   - `npm install`
+   - `npm run dev`
+   - URL para acessar a página (por exemplo `http://localhost:3000/chat`).
+
+========================================
+7. EXPLICAÇÃO DIDÁTICA
+========================================
+Depois de mostrar o código, faça uma explicação didática em português, incluindo:
+
+1. Explicação do fluxo de ponta a ponta:
+   - Usuário → Front-end → Backend → OpenRouter (1ª chamada) → Tool → Banco PostgreSQL → OpenRouter (2ª chamada) → Backend → Front-end.
+2. Explicação do que é o RAG (Retrieval-Augmented Generation), neste contexto:
+   - Recuperação dos dados da tabela `faqs`.
+   - IA usando essas informações para responder.
+3. Como eu poderia evoluir esse exemplo no futuro para:
+   - Usar embeddings (vetores) para busca semântica.
+   - Adicionar autenticação.
+   - Trocar de modelo facilmente apenas trocando o `model` no OpenRouter.
+
+IMPORTANTE:
+- Escreva tudo em português.
+- Comente o código com foco em clareza.
+- Mostre o passo a passo de forma que eu consiga copiar o código em arquivos reais de um projeto Next.js e rodar localmente.
