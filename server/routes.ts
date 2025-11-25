@@ -74,7 +74,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[OPENROUTER] Primeira chamada - enviando mensagem com tools disponíveis");
 
       const requestBody = {
-        model: "gpt-3.5-turbo",
+        model: "x-ai/grok-4.1-fast:free",
         messages: messages,
         tools: tools,
         tool_choice: "auto",
@@ -162,7 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-3.5-turbo",
+          model: "x-ai/grok-4.1-fast:free",
           messages: messages,
           temperature: 0.7,
         }),
