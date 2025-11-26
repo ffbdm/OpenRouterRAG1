@@ -91,7 +91,7 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(faqs)
-      .where(and(...tokenConditions))
+      .where(or(...tokenConditions))
       .limit(limit);
   }
 
