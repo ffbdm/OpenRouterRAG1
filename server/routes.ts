@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -17,6 +18,28 @@ type ToolCall = {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  app.get("/api/logs/stream", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    (res as typeof res & { flushHeaders?: () => void }).flushHeaders?.();
+
+    const sendEvent = (entry: LogEntry) => {
+      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+    };
+
+    getBufferedLogs().forEach(sendEvent);
+    const unsubscribe = subscribeToLogs(sendEvent);
+    const heartbeat = setInterval(() => {
+      res.write(":keep-alive\n\n");
+    }, 30000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
   app.post("/api/chat", async (req, res) => {
     try {
       const { message } = req.body;
