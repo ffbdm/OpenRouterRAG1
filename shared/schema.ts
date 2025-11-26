@@ -20,6 +20,7 @@ export type User = typeof users.$inferSelect;
 export const faqs = pgTable("faqs", {
   id: serial("id").primaryKey(),
   question: text("question").notNull(),
+  questionNormalized: text("question_normalized").notNull().default(""),
   answer: text("answer").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -27,6 +28,7 @@ export const faqs = pgTable("faqs", {
 export const insertFaqSchema = createInsertSchema(faqs).omit({
   id: true,
   createdAt: true,
+  questionNormalized: true,
 });
 
 export type InsertFaq = z.infer<typeof insertFaqSchema>;

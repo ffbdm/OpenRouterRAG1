@@ -1,6 +1,35 @@
 import { users, faqs, type User, type InsertUser, type Faq, type InsertFaq } from "@shared/schema";
 import { db } from "./db";
-import { eq, ilike, or } from "drizzle-orm";
+import { and, eq, ilike, or } from "drizzle-orm";
+import { extractSearchTokens, normalizeText } from "./text-utils";
+
+let faqNormalizationEnsured = false;
+
+async function ensureFaqQuestionNormalization() {
+  if (faqNormalizationEnsured) return;
+
+  const rows = await db
+    .select({ id: faqs.id, question: faqs.question, questionNormalized: faqs.questionNormalized })
+    .from(faqs);
+
+  let updates = 0;
+  for (const row of rows) {
+    const normalized = normalizeText(row.question);
+    if (row.questionNormalized === normalized) continue;
+
+    await db
+      .update(faqs)
+      .set({ questionNormalized: normalized })
+      .where(eq(faqs.id, row.id));
+    updates += 1;
+  }
+
+  if (updates > 0) {
+    console.log(`[DB] question_normalized atualizado para ${updates} FAQ${updates === 1 ? "" : "s"}.`);
+  }
+
+  faqNormalizationEnsured = true;
+}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -31,26 +60,49 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchFaqs(query: string, limit: number): Promise<Faq[]> {
-    const searchPattern = `%${query}%`;
-    
-    const results = await db
+    await ensureFaqQuestionNormalization();
+
+    const normalizedQuery = normalizeText(query);
+    const tokens = extractSearchTokens(query);
+
+    console.log("[DB] searchFaqs :: tokens =>", tokens.length > 0 ? tokens : "nenhum (fallback)" );
+
+    if (tokens.length === 0) {
+      const fallbackPattern = normalizedQuery ? `%${normalizedQuery}%` : `%${query}%`;
+      return db
+        .select()
+        .from(faqs)
+        .where(
+        or(
+          ilike(faqs.questionNormalized, fallbackPattern),
+          ilike(faqs.answer, fallbackPattern)
+        )
+        )
+        .limit(limit);
+    }
+
+    const tokenConditions = tokens.map((token) =>
+      or(
+        ilike(faqs.questionNormalized, `%${token}%`),
+        ilike(faqs.answer, `%${token}%`)
+      )
+    );
+
+    return db
       .select()
       .from(faqs)
-      .where(
-        or(
-          ilike(faqs.question, searchPattern),
-          ilike(faqs.answer, searchPattern)
-        )
-      )
+      .where(and(...tokenConditions))
       .limit(limit);
-    
-    return results;
   }
 
   async createFaq(insertFaq: InsertFaq): Promise<Faq> {
+    const normalizedQuestion = normalizeText(insertFaq.question);
     const [faq] = await db
       .insert(faqs)
-      .values(insertFaq)
+      .values({
+        ...insertFaq,
+        questionNormalized: normalizedQuestion,
+      })
       .returning();
     return faq;
   }

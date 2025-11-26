@@ -1,5 +1,5 @@
-## Objetivo
-Mapear melhorias para `searchFaqs` que aumentem o recall do RAG quando o usuário usa variações como “cavalo” vs. “cavalos”.
+Criar ## Objetivo
+Planejar melhorias de recuperação para o sistema de FAQ como um todo, garantindo que o RAG responda bem a variações linguísticas (singular/plural, sinônimos, acentuação) em qualquer domínio. Nesta iteração vamos detalhar apenas a **Opção 1**, deixando as demais registradas para futuras fases.
 
 ## Observações atuais
 - `client/src/pages/chat.tsx` envia a pergunta crua para `/api/chat`; toda a lógica de busca fica no backend.
@@ -8,11 +8,16 @@ Mapear melhorias para `searchFaqs` que aumentem o recall do RAG quando o usuári
 - Não há normalização (lowercase, remover acentos), tokenização, stemming ou fuzzy matching, então plurais/sinônimos falham.
 
 ## Opções de melhoria
-1. **Normalização + unaccent + tokenização simples**
-   - Lowercase, remover pontuação/acentos antes de gerar o padrão de busca tanto para a query quanto para os campos.
-   - Dividir pergunta em termos relevantes (remover stopwords) e montar cláusula `AND` com `ILIKE '%termo%'` para cada token.
-   - Esforço baixo, sem mudança de schema; melhora casos singular/plural e reordenação parcial.
-   - Ajustes em `server/storage.ts` (talvez helper utilitário compartilhado).
+1. **Normalização + unaccent + tokenização simples** *(foco atual)*
+   - **Pré-processamento**: criar utilitário (ex.: `normalizeText`) que converte para minúsculas, remove pontuação, aplica `unaccent` opcional (via SQL ou lib externa) e elimina múltiplos espaços.
+   - **Tokenização**: quebrar a pergunta em termos relevantes, filtrando stopwords básicas (lista pequena em português). Priorizar termos com ≥3 caracteres para evitar ruído.
+   - **Consulta**: montar cláusula `AND` com `ILIKE '%termo%'` para cada token, aplicando o mesmo normalizador a `question` e `answer` via `sql
+template` ou colunas calculadas (`LOWER(unaccent(question))`).
+   - **Fallback**: se nenhum token sobreviver (pergunta muito curta), usar `ILIKE` simples com a frase normalizada para preservar comportamento atual.
+   - **Onde mudar**:
+     - `server/storage.ts`: implementar helpers, ajustar `searchFaqs`, adicionar logs indicando termos utilizados.
+     - (Opcional) `shared/lib/text.ts`: expor funções de normalização para reaproveito futuro.
+   - **Testes manuais**: simular perguntas com variações (`cavalo/cavalos`, `clientes/clientes finais`, etc.) usando `npm run dev` + console para confirmar novos logs e matches.
 
 2. **Full Text Search nativo do PostgreSQL**
    - Adicionar coluna `tsvector` (ex.: `search_document`) alimentada por `to_tsvector('portuguese', question || ' ' || answer)` e indexar com GIN.
