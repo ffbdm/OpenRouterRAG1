@@ -17,6 +17,33 @@ type ToolCall = {
   };
 };
 
+const catalogIntentKeywords = [
+  "produto",
+  "produtos",
+  "catalogo",
+  "catálogo",
+  "preco",
+  "preço",
+  "loja",
+  "item",
+  "itens",
+  "fabricante",
+  "estoque",
+  "disponivel",
+  "disponível",
+  "precos",
+  "preços",
+  "comparar",
+  "comprar",
+];
+
+function detectForcedTool(message: string): "searchCatalog" | undefined {
+  const normalized = message.toLowerCase();
+  const shouldForceCatalog = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
+
+  return shouldForceCatalog ? "searchCatalog" : undefined;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/logs/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -118,11 +145,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[OPENROUTER] Primeira chamada - enviando mensagem com tools disponíveis");
 
+      const forcedTool = detectForcedTool(message);
+
+      if (forcedTool) {
+        console.log("[ROUTER] Forçando chamada inicial da tool:", forcedTool);
+      }
+
       const requestBody = {
         model: "x-ai/grok-4.1-fast:free",
         messages: messages,
         tools: tools,
-        tool_choice: "auto",
+        tool_choice: forcedTool
+          ? { type: "function", function: { name: forcedTool } }
+          : "auto",
         temperature: 0.7,
       };
 
