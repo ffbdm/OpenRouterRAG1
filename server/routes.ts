@@ -37,11 +37,24 @@ const catalogIntentKeywords = [
   "comprar",
 ];
 
+const genericProductPatterns = [
+  /quais\s+produtos/i,
+  /que\s+produtos/i,
+  /lista\w*\s+produtos/i,
+  /mostrar\s+produtos/i,
+  /produtos\s+voc[eê]\s+tem/i,
+  /produtos\s+dispon[ií]veis/i,
+];
+
 function detectForcedTool(message: string): "searchCatalog" | undefined {
   const normalized = message.toLowerCase();
   const shouldForceCatalog = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
 
   return shouldForceCatalog ? "searchCatalog" : undefined;
+}
+
+function requiresProductClarification(message: string): boolean {
+  return genericProductPatterns.some((pattern) => pattern.test(message));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -78,6 +91,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("\n========================================");
       console.log("[REQUEST] Mensagem do usuário:", message);
       console.log("========================================\n");
+
+      if (requiresProductClarification(message)) {
+        console.log("[ROUTER] Pergunta genérica sobre produtos - solicitando mais detalhes antes de consultar catálogo");
+
+        return res.json({
+          response: "Nosso catálogo é extenso. Pode me dizer categoria, fabricante ou faixa de preço para eu buscar os produtos certos?",
+          debug: {
+            databaseQueried: false,
+            faqsFound: 0,
+            catalogItemsFound: 0,
+            message: "ℹ️ Solicitadas mais informações antes de consultar o catálogo",
+          },
+        });
+      }
 
       const messages: Message[] = [
         {
