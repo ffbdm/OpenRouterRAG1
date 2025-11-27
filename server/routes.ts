@@ -55,7 +55,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messages: Message[] = [
         {
           role: "system",
-          content: "Você é um assistente de FAQ inteligente. Quando o usuário fizer uma pergunta, use a ferramenta searchFaqs para buscar informações relevantes no banco de dados antes de responder. Baseie sua resposta nas informações encontradas. Se não encontrar informações relevantes, informe ao usuário. Responda sempre em português de forma clara e objetiva.",
+          content: "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.",
         },
         {
           role: "user",
@@ -79,6 +79,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 limit: {
                   type: "number",
                   description: "Número máximo de resultados",
+                  default: 5,
+                },
+              },
+              required: ["query"],
+            },
+          },
+        },
+        {
+          type: "function" as const,
+          function: {
+            name: "searchCatalog",
+            description: "Consulta itens ativos do catálogo (nome, descrição, categoria, fabricante, preço e tags).",
+            parameters: {
+              type: "object",
+              properties: {
+                query: {
+                  type: "string",
+                  description: "Texto de busca para localizar produtos relevantes",
+                },
+                limit: {
+                  type: "number",
+                  description: "Número máximo de itens retornados",
                   default: 5,
                 },
               },
@@ -140,6 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Processar tool calls se existirem
       let databaseQueried = false;
       let faqsFound = 0;
+      let catalogItemsFound = 0;
       
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         for (const toolCall of assistantMessage.tool_calls) {
@@ -167,6 +190,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
             messages.push({
               role: "system",
               content: `Resultados da busca para "${args.query}": ${JSON.stringify(results)}`,
+            });
+          } else if (toolCall.function.name === "searchCatalog") {
+            databaseQueried = true;
+            console.log("\n🔍 [FERRAMENTA ACIONADA] searchCatalog foi chamada!");
+
+            const args = JSON.parse(toolCall.function.arguments || "{}");
+            console.log("   Buscando produtos por:", args.query);
+
+            const results = await storage.searchCatalog(args.query, args.limit || 5);
+            catalogItemsFound = results.length;
+
+            if (results.length > 0) {
+              console.log("\n✅ [CATÁLOGO] Itens encontrados! Total:", results.length);
+              results.forEach((item, idx) => {
+                console.log(`     ${idx + 1}. ${item.name} - R$${item.price.toFixed(2)} (${item.category})`);
+              });
+            } else {
+              console.log("\n❌ [CATÁLOGO] Nenhum item encontrado para esta busca");
+            }
+
+            const summary = results
+              .map((item) => {
+                const tagList = item.tags.join(", ") || "sem tags";
+                return `${item.name} | ${item.category} | ${item.manufacturer} | R$${item.price.toFixed(2)} | Tags: ${tagList} | ${item.description}`;
+              })
+              .join(" || ");
+
+            messages.push({
+              role: "system",
+              content: results.length > 0
+                ? `Itens do catálogo para "${args.query}": ${summary}`
+                : `Nenhum item do catálogo encontrado para "${args.query}".`,
             });
           }
         }
@@ -212,8 +267,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         debug: {
           databaseQueried,
           faqsFound,
+          catalogItemsFound,
           message: databaseQueried 
-            ? `✅ Dados do banco consultados (${faqsFound} resultado${faqsFound !== 1 ? 's' : ''} encontrado${faqsFound !== 1 ? 's' : ''})`
+            ? `✅ Dados do banco consultados (FAQs: ${faqsFound}, Catálogo: ${catalogItemsFound})`
             : "⚠️ Banco NÃO foi consultado para esta pergunta",
         }
       });

@@ -1,6 +1,6 @@
-import { users, faqs, type User, type InsertUser, type Faq, type InsertFaq } from "@shared/schema";
+import { users, faqs, catalogItems, type User, type InsertUser, type Faq, type InsertFaq, type CatalogItem } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, ilike, or } from "drizzle-orm";
+import { and, eq, ilike, or, sql } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 
 let faqNormalizationEnsured = false;
@@ -36,6 +36,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   searchFaqs(query: string, limit: number): Promise<Faq[]>;
+  searchCatalog(query: string, limit: number): Promise<CatalogItem[]>;
   createFaq(faq: InsertFaq): Promise<Faq>;
   getAllFaqs(): Promise<Faq[]>;
 }
@@ -92,6 +93,43 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(faqs)
       .where(or(...tokenConditions))
+      .limit(limit);
+  }
+
+  async searchCatalog(query: string, limit: number): Promise<CatalogItem[]> {
+    const tokens = extractSearchTokens(query);
+    const trimmed = query.trim();
+
+    const buildFieldMatch = (term: string) => {
+      const pattern = `%${term}%`;
+      const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
+
+      return or(
+        ilike(catalogItems.name, pattern),
+        ilike(catalogItems.description, pattern),
+        ilike(catalogItems.category, pattern),
+        ilike(catalogItems.manufacturer, pattern),
+        ilike(tagsText, pattern)
+      );
+    };
+
+    const tokenConditions = tokens.map(buildFieldMatch);
+
+    const searchCondition = tokenConditions.length === 0
+      ? buildFieldMatch(trimmed || query)
+      : tokenConditions.length === 1
+        ? tokenConditions[0]
+        : or(...tokenConditions);
+
+    return db
+      .select()
+      .from(catalogItems)
+      .where(
+        and(
+          eq(catalogItems.status, "ativo"),
+          searchCondition
+        )
+      )
       .limit(limit);
   }
 
