@@ -141,6 +141,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 4. Frontend Specialist: Integrate file input/upload progress in client catalog UI (e.g., `/catalog/[id]` page).
 5. Refactoring Specialist: Clean integrations; daily Code Reviewer check-ins on WIP PRs.
 
+**Status 2025-11-29 13:49 BRT:** Implementado armazenamento de anexos de catálogo usando Vercel Blob. Novas dependências `@vercel/blob`, `multer` e `@types/multer`. Schema estendido com tabela `catalog_files` em `shared/schema.ts` (FK para `catalog_items`, metadados, preview opcional). Backend: `server/catalog-file-storage.ts` valida MIME (pdf/txt/doc/docx/md/json/csv/rtf/odt), limite 10MB configurável (`BLOB_MAX_FILE_SIZE_BYTES`), gera paths `catalog-files/{itemId}/slug-uuid.ext` e envia via Blob com `BLOB_READ_WRITE_TOKEN`/`BLOB_PUBLIC_BASE_URL`; rotas em `server/catalog-routes.ts` para `POST /api/catalog/:id/files`, `GET /api/catalog/:id/files` e `DELETE /api/catalog/files/:fileId` + Drizzle em `storage.ts`. Frontend: `client/src/pages/catalog.tsx` ganhou gerenciador de arquivos (upload/list/delete, toasts, preview) por item. Testes adicionados em `tests/catalog-file-storage.test.ts`. Docs atualizadas em `.context/docs/data-flow.md` e `.context/docs/security.md`. Pendentes: rodar `npm run db:push` para criar tabela em ambientes, provisionar/verificar bucket `agroremoto-blob` e tokens `BLOB_READ_WRITE_TOKEN/BLOB_PUBLIC_BASE_URL`, validar limites/mimes com stakeholders e adicionar auditoria de auth/rate-limit antes de produção.
+
 **Deliverables:** Working upload API/UI, migration script, initial tests.
 **Evidence:** Local demo video, blob files created, DB rows inserted.
 

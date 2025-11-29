@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, doublePrecision, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, doublePrecision, pgEnum, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -75,6 +75,36 @@ export const updateCatalogItemSchema = catalogItemInputSchema.extend({
   id: z.number().int().positive(),
 });
 export type UpdateCatalogItemInput = z.infer<typeof updateCatalogItemSchema>;
+
+export const catalogFiles = pgTable("catalog_files", {
+  id: serial("id").primaryKey(),
+  catalogItemId: integer("catalog_item_id")
+    .notNull()
+    .references(() => catalogItems.id, { onDelete: "cascade" }),
+  originalName: text("original_name").notNull(),
+  blobPath: text("blob_path").notNull(),
+  blobUrl: text("blob_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  textPreview: text("text_preview"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  catalogItemIndex: index("catalog_files_item_id_idx").on(table.catalogItemId),
+}));
+
+export const insertCatalogFileSchema = createInsertSchema(catalogFiles, {
+  sizeBytes: z.coerce.number().int().nonnegative(),
+  blobUrl: z.string().trim().url(),
+  blobPath: z.string().trim().min(1),
+  mimeType: z.string().trim().min(1),
+  textPreview: z.string().optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCatalogFile = z.infer<typeof insertCatalogFileSchema>;
+export type CatalogFile = typeof catalogFiles.$inferSelect;
 
 export const catalogItemsSeed: InsertCatalogItem[] = [
   {

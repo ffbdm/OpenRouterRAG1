@@ -2,12 +2,15 @@ import {
   users,
   faqs,
   catalogItems,
+  catalogFiles,
   type User,
   type InsertUser,
   type Faq,
   type InsertFaq,
   type CatalogItem,
   type CatalogItemInput,
+  type CatalogFile,
+  type InsertCatalogFile,
 } from "@shared/schema";
 import { db } from "./db";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
@@ -87,6 +90,10 @@ export interface IStorage {
   deleteCatalogItem(id: number, options?: { hardDelete?: boolean }): Promise<{ deleted: boolean; archived: boolean; item?: CatalogItem }>;
   createFaq(faq: InsertFaq): Promise<Faq>;
   getAllFaqs(): Promise<Faq[]>;
+  listCatalogFiles(itemId: number): Promise<CatalogFile[]>;
+  createCatalogFile(file: InsertCatalogFile): Promise<CatalogFile>;
+  getCatalogFileById(id: number): Promise<CatalogFile | undefined>;
+  deleteCatalogFile(id: number): Promise<CatalogFile | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -271,6 +278,41 @@ export class DatabaseStorage implements IStorage {
 
   async getAllFaqs(): Promise<Faq[]> {
     return await db.select().from(faqs);
+  }
+
+  async listCatalogFiles(itemId: number): Promise<CatalogFile[]> {
+    return db
+      .select()
+      .from(catalogFiles)
+      .where(eq(catalogFiles.catalogItemId, itemId))
+      .orderBy(desc(catalogFiles.createdAt));
+  }
+
+  async createCatalogFile(file: InsertCatalogFile): Promise<CatalogFile> {
+    const [created] = await db
+      .insert(catalogFiles)
+      .values(file)
+      .returning();
+
+    return created;
+  }
+
+  async getCatalogFileById(id: number): Promise<CatalogFile | undefined> {
+    const [file] = await db
+      .select()
+      .from(catalogFiles)
+      .where(eq(catalogFiles.id, id));
+
+    return file;
+  }
+
+  async deleteCatalogFile(id: number): Promise<CatalogFile | undefined> {
+    const [deleted] = await db
+      .delete(catalogFiles)
+      .where(eq(catalogFiles.id, id))
+      .returning();
+
+    return deleted;
   }
 }
 

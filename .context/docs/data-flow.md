@@ -9,16 +9,19 @@ Explain how data enters, moves through, and exits the system, including interact
 3. When OpenRouter responds with tool calls, the server executes `searchFaqs` or `searchCatalog` via Drizzle and appends the structured results as system messages.
 4. A second OpenRouter call receives the enriched message history and returns the final answer.
 5. Express persists no state—responses plus debug metadata stream back to the SPA while SSE broadcasts log entries to the in-app terminal.
+6. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.
 
 ## Internal Movement
-- **Client → Server:** `client/src/pages/chat.tsx` uses `apiRequest` (React Query) to call the API and listens to `/api/logs/stream` via `LogTerminal`.
+- **Client → Server:** `client/src/pages/chat.tsx` uses `apiRequest` (React Query) to call the API and listens to `/api/logs/stream` via `LogTerminal`. `client/src/pages/catalog.tsx` now manages file uploads and lists with React Query keyed by catalog item ID.
 - **Server orchestration:** `server/routes.ts` constructs OpenRouter payloads, inspects tool calls, and emits debug payloads; `server/app.ts` injects middleware for timing/log truncation.
 - **Search helpers:** `server/storage.ts` tokenizes/normalizes queries before running Drizzle `ilike` conditions. All table contracts originate from `shared/schema.ts` to keep inserts, selects, and scripts consistent.
+- **Catalog attachments:** `server/catalog-routes.ts` handles uploads via `multer` in memory, validates MIME/size (`server/catalog-file-storage.ts`), streams buffers to Vercel Blob, and records metadata in `catalog_files`. Deletions call Blob API first, then remove DB rows; cascade deletes clear files when a catalog item is hard-deleted.
 - **Config artifacts:** `plans/` documents retrieval strategies, `drizzle.config.ts` binds schema to migrations, and `vite.config.ts` defines module aliases that keep imports consistent.
 
 ## External Integrations
 - **OpenRouter (LLM orchestration)** — Authenticated with `OPENROUTER_API_KEY` via Bearer header plus optional referer/title metadata. Payload: Chat Completion request containing Portuguese system prompts and optional `tool_choice`. Retries currently rely on fetch default behavior; errors bubble back to the client with detailed log lines for follow-up.
 - **Neon/Postgres (data retrieval)** — `DATABASE_URL` drives pooled WebSocket connections via `@neondatabase/serverless`. Drizzle issues parameterized SQL for FAQs and catalog tables. Search FALLBACK uses normalized `ILIKE` expressions; token logging helps troubleshoot misses. If Neon is unreachable, the API responds 500 with details logged via SSE.
+- **Vercel Blob (file storage)** — `@vercel/blob` uploads catalog attachments to bucket `agroremoto-blob` using `BLOB_READ_WRITE_TOKEN`. Optional `BLOB_PUBLIC_BASE_URL` rewrites public URLs; `BLOB_MAX_FILE_SIZE_BYTES` caps uploads (default 10MB). Blob deletions occur before DB metadata removal to avoid orphans.
 
 ## Observability & Failure Modes
 - **Structured logging:** `server/app.ts` records method, path, status, duration, and (trimmed) JSON payloads for `/api` calls. Messages exceeding 80 chars are truncated but still broadcast via SSE.

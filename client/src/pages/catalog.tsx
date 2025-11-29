@@ -46,9 +46,9 @@ import {
   parseTagsInput,
   statusLabel,
 } from "@/lib/catalog";
-import type { CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
+import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
-import { AlertCircle, Loader2, Pencil, Plus, RefreshCw, Tag, Trash2 } from "lucide-react";
+import { AlertCircle, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Tag, Trash2, UploadCloud } from "lucide-react";
 
 const catalogFormSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome do item"),
@@ -63,6 +63,270 @@ const catalogFormSchema = z.object({
 type CatalogFormValues = z.infer<typeof catalogFormSchema>;
 
 type CatalogMutationPayload = CatalogItemInput;
+
+function formatBytes(value: number | null | undefined): string {
+  if (!value || value < 0) return "-";
+
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function CatalogFilesDialog({
+  item,
+  open,
+  onOpenChange,
+}: {
+  item: CatalogItem | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setSelectedFile(null);
+    }
+  }, [open]);
+
+  const filesQuery = useQuery({
+    queryKey: ["catalog-files", item?.id],
+    enabled: Boolean(item?.id) && open,
+    queryFn: async () => {
+      if (!item) throw new Error("Item não selecionado");
+
+      const res = await fetch(`/api/catalog/${item.id}/files`, { credentials: "include" });
+      if (!res.ok) {
+        const message = (await res.text()) || res.statusText;
+        throw new Error(message);
+      }
+
+      return (await res.json()) as {
+        files: CatalogFile[];
+        limits?: { maxSizeBytes?: number; allowedMimeTypes?: string[] };
+      };
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!item) throw new Error("Item não encontrado para upload");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`/api/catalog/${item.id}/files`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const message = (await res.text()) || res.statusText;
+        throw new Error(message);
+      }
+
+      return (await res.json()) as { file: CatalogFile };
+    },
+    onSuccess: () => {
+      toast({
+        title: "Arquivo enviado",
+        description: "Upload concluído com sucesso.",
+      });
+      if (item?.id) {
+        queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
+      }
+      setSelectedFile(null);
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Erro ao enviar arquivo",
+        description: error instanceof Error ? error.message : "Não foi possível enviar o arquivo.",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const res = await fetch(`/api/catalog/files/${fileId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const message = (await res.text()) || res.statusText;
+        throw new Error(message);
+      }
+
+      return (await res.json()) as { deleted: boolean };
+    },
+    onSuccess: () => {
+      if (item?.id) {
+        queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
+      }
+      toast({
+        title: "Arquivo removido",
+        description: "O arquivo foi excluído do catálogo.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Erro ao remover arquivo",
+        description: error instanceof Error ? error.message : "Não foi possível remover o arquivo.",
+      });
+    },
+  });
+
+  const files = filesQuery.data?.files ?? [];
+  const limits = filesQuery.data?.limits;
+
+  const handleUpload = () => {
+    if (!selectedFile) {
+      toast({
+        variant: "destructive",
+        title: "Selecione um arquivo",
+        description: "Escolha um arquivo para enviar para o item.",
+      });
+      return;
+    }
+
+    uploadMutation.mutate(selectedFile);
+  };
+
+  const acceptTypes = limits?.allowedMimeTypes?.join(",");
+  const maxSizeLabel = limits?.maxSizeBytes ? `${(limits.maxSizeBytes / (1024 * 1024)).toFixed(1)}MB` : "10MB";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Arquivos do item</DialogTitle>
+          <DialogDescription>
+            Adicione arquivos de contexto para o item {item?.name}. Os uploads vão para o storage Vercel Blob.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!item && (
+          <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            Selecione um item para gerenciar arquivos.
+          </div>
+        )}
+
+        {item && (
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/30 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Upload de arquivo</p>
+                  <p className="text-xs text-muted-foreground">
+                    Tipos permitidos: {limits?.allowedMimeTypes?.join(", ") ?? "pdf, txt, doc, docx, md"} | Limite {maxSizeLabel}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                  <Input
+                    type="file"
+                    accept={acceptTypes}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      setSelectedFile(file ?? null);
+                    }}
+                  />
+                  <Button onClick={handleUpload} disabled={uploadMutation.isPending || !selectedFile}>
+                    {uploadMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    <UploadCloud className="mr-2 h-4 w-4" />
+                    Enviar
+                  </Button>
+                </div>
+              </div>
+              {selectedFile && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Selecionado: {selectedFile.name} ({formatBytes(selectedFile.size)})
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-md border">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <p className="text-sm font-medium">Arquivos enviados</p>
+                {filesQuery.isFetching && (
+                  <span className="text-xs text-muted-foreground">Atualizando...</span>
+                )}
+              </div>
+
+              <div className="p-4">
+                {filesQuery.isError && (
+                  <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    {filesQuery.error instanceof Error ? filesQuery.error.message : "Erro ao carregar arquivos."}
+                  </div>
+                )}
+
+                {filesQuery.isLoading && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Carregando arquivos...
+                  </div>
+                )}
+
+                {!filesQuery.isLoading && files.length === 0 && (
+                  <div className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    <FileText className="h-4 w-4" />
+                    Nenhum arquivo enviado para este item.
+                  </div>
+                )}
+
+                {files.length > 0 && (
+                  <div className="space-y-3">
+                    {files.map((file) => (
+                      <div key={file.id} className="flex flex-col gap-3 rounded-md border px-3 py-2 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                            <FileText className="h-4 w-4" />
+                            {file.originalName}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {file.mimeType} · {formatBytes(file.sizeBytes)} · {new Date(file.createdAt).toLocaleString("pt-BR")}
+                          </div>
+                          {file.textPreview && (
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {file.textPreview}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button asChild variant="outline" size="sm">
+                            <a href={file.blobUrl} target="_blank" rel="noreferrer">
+                              <ExternalLink className="mr-2 h-4 w-4" />
+                              Abrir
+                            </a>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => deleteMutation.mutate(file.id)}
+                            disabled={deleteMutation.isPending}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Remover
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const statusFilters: { value: CatalogStatusFilter; label: string }[] = [
   { value: "ativo", label: "Ativos" },
@@ -296,6 +560,8 @@ export default function CatalogPage() {
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CatalogItem | null>(null);
   const [hardDelete, setHardDelete] = useState(false);
+  const [filesItem, setFilesItem] = useState<CatalogItem | null>(null);
+  const [filesDialogOpen, setFilesDialogOpen] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -399,6 +665,11 @@ export default function CatalogPage() {
     setFormOpen(true);
   };
 
+  const openFilesDialog = (item: CatalogItem) => {
+    setFilesItem(item);
+    setFilesDialogOpen(true);
+  };
+
   const openEdit = (item: CatalogItem) => {
     setFormMode("edit");
     setEditingItem(item);
@@ -419,6 +690,13 @@ export default function CatalogPage() {
   const openDeleteDialog = (item: CatalogItem) => {
     setDeleteTarget(item);
     setHardDelete(false);
+  };
+
+  const handleFilesDialogChange = (open: boolean) => {
+    setFilesDialogOpen(open);
+    if (!open) {
+      setFilesItem(null);
+    }
   };
 
   return (
@@ -560,6 +838,10 @@ export default function CatalogPage() {
                   </TableCell>
                   <TableCell className="align-top text-right">
                     <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => openFilesDialog(item)}>
+                        <Paperclip className="mr-2 h-4 w-4" />
+                        Arquivos
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>
                         <Pencil className="mr-2 h-4 w-4" />
                         Editar
@@ -581,6 +863,8 @@ export default function CatalogPage() {
           </Table>
         </div>
       </Card>
+
+      <CatalogFilesDialog item={filesItem} open={filesDialogOpen} onOpenChange={handleFilesDialogChange} />
 
       <CatalogFormDialog
         mode={formMode}

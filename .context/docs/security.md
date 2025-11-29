@@ -8,13 +8,20 @@ Capture the policies and guardrails that keep this project secure and compliant.
 - The public chat UI currently runs without end-user auth; it assumes access is restricted via deployment controls. If exposed broadly, wrap Express routes with session middleware plus rate limits.
 - OpenRouter calls authenticate with a Bearer token stored in `OPENROUTER_API_KEY`. Never log the raw key—`server/routes.ts` only prints length/prefix for debugging.
 - Database connections rely on `DATABASE_URL` (Neon). Credentials are injected via environment variables and never checked into version control.
+- Catalog file uploads use Vercel Blob signed writes via `BLOB_READ_WRITE_TOKEN`. Upload routes reject requests if the token is missing; URLs are optionally rewritten with `BLOB_PUBLIC_BASE_URL` when blobs are private.
 
 ## Secrets & Sensitive Data
 - Store secrets in `.env` locally and cloud-specific secret managers (Vercel env variables, GitHub Actions secrets) in CI/CD.
 - Rotate `OPENROUTER_API_KEY` and Neon credentials if logs or config files inadvertently leak metadata.
+- Keep `BLOB_READ_WRITE_TOKEN` scoped to the `agroremoto-blob` bucket. Do not log blob URLs with embedded signatures; `server/catalog-routes.ts` only returns sanitized URLs to the client.
 - FAQ and catalog tables only contain reference content (no PII). If you introduce customer data, document retention windows and sanitization steps here.
 - Avoid dumping full OpenRouter responses into logs—only log counts and tool metadata to limit exposure of customer prompts.
 - Quando precisar auditar as tool calls, use o `logToolPayload` (em `server/routes.ts`) que já normaliza espaços e limita o preview a 800 caracteres para evitar vazamento de prompts extensos ou dados sensíveis.
+
+## File Upload Guardrails
+- `server/catalog-file-storage.ts` enforces MIME allowlist (pdf, txt, doc, docx, md, json/csv/rtf/odt) and max size (`BLOB_MAX_FILE_SIZE_BYTES`, default 10MB) before uploads reach Vercel Blob.
+- Uploads stream to memory via `multer` with size caps; over-limit requests return 400 without touching Blob.
+- Deletions remove the blob first (`@vercel/blob` `del`) and then delete metadata rows to avoid dangling public links.
 
 ## Compliance & Policies
 - No formal certifications are mandated today, but follow GDPR-friendly practices: do not store personally identifiable prompts beyond transient processing, and scrub debug messages before sharing outside the team.
