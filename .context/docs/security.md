@@ -22,6 +22,7 @@ Capture the policies and guardrails that keep this project secure and compliant.
 - `server/catalog-file-storage.ts` enforces MIME allowlist (pdf, txt, doc, docx, md, json/csv/rtf/odt) and max size (`BLOB_MAX_FILE_SIZE_BYTES`, default 10MB) before uploads reach Vercel Blob.
 - Uploads stream to memory via `multer` with size caps; over-limit requests return 400 without touching Blob.
 - Deletions remove the blob first (`@vercel/blob` `del`) and then delete metadata rows to avoid dangling public links.
+- Preview parsing (`server/catalog-file-preview.ts`) truncates output to ~2k chars and normalizes whitespace before saving `textPreview`. Unsupported/failed parses log a warning and continue storing the blob without leaking buffer contents or blocking the request.
 
 ## Compliance & Policies
 - No formal certifications are mandated today, but follow GDPR-friendly practices: do not store personally identifiable prompts beyond transient processing, and scrub debug messages before sharing outside the team.

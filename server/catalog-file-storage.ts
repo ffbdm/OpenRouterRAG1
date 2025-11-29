@@ -108,12 +108,3 @@ export async function uploadCatalogFileToBlob(params: {
 export async function deleteCatalogBlob(urlOrPath: string, token: string): Promise<void> {
   await del(urlOrPath, { token });
 }
-
-export function extractTextPreview(file: Express.Multer.File, maxLength = 2000): string | undefined {
-  const mimeType = file.mimetype || "";
-  const isText = mimeType.startsWith("text/") || mimeType === "application/json";
-
-  if (!isText) return undefined;
-
-  return file.buffer?.toString("utf-8").slice(0, maxLength);
-}

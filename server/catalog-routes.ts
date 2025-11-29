@@ -7,12 +7,12 @@ import { storage } from "./storage";
 import {
   allowedCatalogFileMimeTypes,
   deleteCatalogBlob,
-  extractTextPreview,
   getCatalogBlobMaxSize,
   getCatalogBlobToken,
   uploadCatalogFileToBlob,
   validateCatalogFile,
 } from "./catalog-file-storage";
+import { extractTextPreview } from "./catalog-file-preview";
 
 const statusFilterSchema = z.union([
   z.enum(catalogItemStatusValues),
@@ -184,7 +184,7 @@ export function registerCatalogRoutes(app: Express) {
         blobUrl: uploadResult.blobUrl,
         mimeType: req.file!.mimetype || "application/octet-stream",
         sizeBytes: uploadResult.size,
-        textPreview: extractTextPreview(req.file!),
+        textPreview: await extractTextPreview(req.file!),
       });
 
       return res.status(201).json({ file: created });
