@@ -121,6 +121,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 3. Devops Specialist: Confirm "agroremoto-blob" setup and env vars (e.g., `BLOB_READ_WRITE_TOKEN`).
 4. Capture open questions: Max file size? MIME types? Auth for uploads? Escalate to human if needed.
 
+**Status 2025-11-29:** Registramos descobertas iniciais em [rag-context-catalog-discovery.md](./rag-context-catalog-discovery.md) cobrindo design de paths (`catalog-files/{itemId}/{slug}-{uuid}{ext}`), tabela `catalog_files` (metadados + preview opcional), rotas REST de upload/list/delete, dependências (`@vercel/blob`, `multer`), envs (`BLOB_READ_WRITE_TOKEN`, `BLOB_PUBLIC_BASE_URL`) e dúvidas em aberto sobre auth, limites e ingestão de texto para RAG.
+
 **Deliverables:** Design ADR, schema proposal PR, blob config confirmation.
 **Evidence:** Committed design notes, screenshot of blob store.
 
