@@ -3,10 +3,10 @@ import { pgTable, text, varchar, serial, timestamp, doublePrecision, pgEnum } fr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const catalogItemStatusEnum = pgEnum("catalog_item_status", [
-  "ativo",
-  "arquivado",
-]);
+export const catalogItemStatusValues = ["ativo", "arquivado"] as const;
+export type CatalogItemStatus = (typeof catalogItemStatusValues)[number];
+export const catalogItemStatusEnum = pgEnum("catalog_item_status", catalogItemStatusValues);
+export const catalogItemStatusSchema = z.enum(catalogItemStatusValues);
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -61,6 +61,20 @@ export const insertCatalogItemSchema = createInsertSchema(catalogItems, {
 
 export type InsertCatalogItem = z.infer<typeof insertCatalogItemSchema>;
 export type CatalogItem = typeof catalogItems.$inferSelect;
+export const catalogItemInputSchema = z.object({
+  name: z.string().trim().min(2),
+  description: z.string().trim().min(5),
+  category: z.string().trim().min(2),
+  manufacturer: z.string().trim().min(2),
+  price: z.coerce.number().nonnegative(),
+  status: catalogItemStatusSchema.default("ativo"),
+  tags: z.array(z.string()).default([]),
+});
+export type CatalogItemInput = z.infer<typeof catalogItemInputSchema>;
+export const updateCatalogItemSchema = catalogItemInputSchema.extend({
+  id: z.number().int().positive(),
+});
+export type UpdateCatalogItemInput = z.infer<typeof updateCatalogItemSchema>;
 
 export const catalogItemsSeed: InsertCatalogItem[] = [
   {

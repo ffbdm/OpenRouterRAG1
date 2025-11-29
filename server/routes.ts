@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
+import { registerCatalogRoutes } from "./catalog-routes";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -74,6 +75,8 @@ function parseToolArguments<T extends ToolArguments = ToolArguments>(rawArgs?: s
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  registerCatalogRoutes(app);
+
   app.get("/api/logs/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
