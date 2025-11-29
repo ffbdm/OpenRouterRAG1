@@ -123,6 +123,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 
 **Status 2025-11-29:** Registramos descobertas iniciais em [rag-context-catalog-discovery.md](./rag-context-catalog-discovery.md) cobrindo design de paths (`catalog-files/{itemId}/{slug}-{uuid}{ext}`), tabela `catalog_files` (metadados + preview opcional), rotas REST de upload/list/delete, dependências (`@vercel/blob`, `multer`), envs (`BLOB_READ_WRITE_TOKEN`, `BLOB_PUBLIC_BASE_URL`) e dúvidas em aberto sobre auth, limites e ingestão de texto para RAG.
 
+**Status 2025-11-29 12:08 BRT:** Revisamos o estado atual do repo. Não há UI de catálogo no cliente (`client/src/pages` só contém chat/not-found) nem rotas de upload/storage no servidor (`server/storage.ts` só cobre usuários/FAQ/catalog search). Nenhuma referência a Vercel Blob ou envs `BLOB_*` foi encontrada. Próximo passo: confirmar requisitos de UI (página de item) e provisionamento do bucket antes de iniciar Phase 2.
+
 **Deliverables:** Design ADR, schema proposal PR, blob config confirmation.
 **Evidence:** Committed design notes, screenshot of blob store.
 
@@ -204,5 +206,6 @@ When to initiate rollback:
 ## Evidence & Follow-up
 - Artifacts: PR links (e.g., #12 schema, #13 backend, #14 frontend), test coverage report, staging deploy logs, blob store screenshots, updated docs with agent-update markers.
 - Follow-up: Backend Specialist monitors prod uploads for 1 week; add to backlog: virus scanning, analytics on uploads (Owner: Architect Specialist).
+- 2025-11-29: Execução desta sessão pausada na transição para Phase 2. Pendências: provisionar Vercel Blob `agroremoto-blob` + tokens `BLOB_*`, definir página/UI de item de catálogo para encaixar o upload, validar limites de tamanho/MIME.
 
 <!-- agent-update:end -->
