@@ -2,35 +2,35 @@
 
 Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRouter, Express e Vite.
 
-## Fluxo RAG híbrido (chat)
+## Hybrid RAG flow (chat)
 
 ```mermaid
 flowchart TD
-    U[Usuário envia texto] --> A[/POST /api/chat/]
+    U[User sends text] --> A[/POST /api/chat/]
 
-    A --> B{Mensagem genérica de produtos?}
-    B -- sim --> B1[Responder pedindo detalhes\nsem consultar BD] --> R[Resposta ao cliente]
-    B -- não --> C{Detecta intenção\ncatálogo/agro?}
+    A --> B{Generic product question?}
+    B -- yes --> B1[Ask for more details\nwithout querying DB] --> R[Response to client]
+    B -- no --> C{Detect catalog/agro intent?}
 
-    C -- sim --> P[Pré-busca híbrida\nstorage.searchCatalogHybrid\n(lexical + vetorial)] --> PCTX[Injeta payload no contexto (system)] --> D
-    C -- não --> D
+    C -- yes --> P[Pre-search hybrid\nstorage.searchCatalogHybrid\n(lexical + vector)] --> PCTX[Inject payload into context (system)] --> D
+    C -- no --> D
 
-    D[Chamada LLM #1 (OpenRouter)\ntools: searchFaqs, searchCatalog] --> E{Tool calls?}
+    D[LLM call #1 (OpenRouter)\ntools: searchFaqs, searchCatalog] --> E{Tool calls?}
 
-    E -- searchFaqs --> F[storage.searchFaqs\ntokens/ILIKE em FAQs] --> FCTX[Adiciona resultados ao contexto] --> G
+    E -- searchFaqs --> F[storage.searchFaqs\ntokens/ILIKE over FAQs] --> FCTX[Add results to context] --> G
     E -- searchCatalog --> H[storage.searchCatalogHybrid]
-    H --> H1[Busca lexical\nILIKE em nome/descrição/\ncategoria/fabricante/tags]
+    H --> H1[Lexical search\nILIKE over name/description/\ncategory/manufacturer/tags]
     H --> H2[Embeddings via OpenRouter\ntext-embedding-3-small]
-    H2 -->|sucesso| H3[Busca vetorial\ncatalog_item_embeddings\ndistância <#>]
-    H2 -->|falha/sem chave| H4[Fallback: só lexical\nmarca fallbackReason]
-    H1 & H3 --> H5[mergeCatalogResults\nprioriza vetorial, deduplica,\nrespeita limite] --> HCTX[Adiciona payload ao contexto] --> G
-    E -- nenhuma --> G[Segue com contexto atual]
+    H2 -->|success| H3[Vector search\ncatalog_item_embeddings\ndistance <#>]
+    H2 -->|fail/no key| H4[Fallback: lexical only\nset fallbackReason]
+    H1 & H3 --> H5[mergeCatalogResults\nprioritize vector, dedupe,\nrespect limit] --> HCTX[Add payload to context] --> G
+    E -- none --> G[Continue with current context]
 
-    G --> L[Chamada LLM #2 (resposta final)] --> R[Resposta ao cliente + debug]
+    G --> L[LLM call #2 (final answer)] --> R[Response to client + debug]
 
     %% Debug/stats
-    P & H5 --> S[Logs de tempos e contagens\n(vectorMs, lexicalMs, mergeMs,\nvectorCount, lexicalCount, embeddingUsed)]
-    R --> DBG[Payload debug: flags de consulta, contagens, fallbackReason, timings]
+    P & H5 --> S[Log timings and counts\n(vectorMs, lexicalMs, mergeMs,\nvectorCount, lexicalCount, embeddingUsed)]
+    R --> DBG[Debug payload: query flags, counts, fallbackReason, timings]
 ```
 
 ## Testes rápidos
