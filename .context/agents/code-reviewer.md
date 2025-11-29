@@ -2,7 +2,7 @@
 # Code Reviewer Agent Playbook
 
 ## Mission
-Describe how the code reviewer agent supports the team and when to engage it.
+Safeguard quality by reviewing pull requests for correctness, style, and documentation alignment. Engage this agent before merging any non-trivial change.
 
 ## Responsibilities
 - Review code changes for quality, style, and best practices
@@ -22,12 +22,12 @@ Describe how the code reviewer agent supports the team and when to engage it.
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Context for UX copy or prompt tone; reference when checking text changes.
+- `client/` — React components, hooks, and Tailwind styles to review for accessibility and state handling.
+- `plans/` — Historical decisions to cite when assessing architectural consistency.
+- `scripts/` — Helper utilities that PRs might touch (e.g., new seeds or migrations).
+- `server/` — Express logic, OpenRouter integration, and storage modules that require careful scrutiny.
+- `shared/` — Schema and type definitions—ensure updates include migrations and doc references.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Provide review feedback within one business day of assignment to keep release velocity high.
+- Ensure every reviewed PR references the relevant `.context/docs` section or gets updated accordingly before approval.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

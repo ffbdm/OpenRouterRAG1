@@ -2,7 +2,7 @@
 # Frontend Specialist Agent Playbook
 
 ## Mission
-Describe how the frontend specialist agent supports the team and when to engage it.
+Own the chat UI, log terminal, and surrounding SPA experience. Engage this agent for UX changes, accessibility fixes, or state-management updates in the React layer.
 
 ## Responsibilities
 - Design and implement user interfaces
@@ -25,12 +25,12 @@ Describe how the frontend specialist agent supports the team and when to engage 
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Reference tone/UX cues when editing Portuguese copy or layouts.
+- `client/` — React components, shadcn UI, hooks, Tailwind styles, and entry files.
+- `plans/` — Notes on retrieval UX assumptions (e.g., catalog prompts) that should reflect in UI hints.
+- `scripts/` — Use when you need deterministic data for UI demos (seed scripts).
+- `server/` — Understand API payloads and debug metadata expected by the UI.
+- `shared/` — Types that define API contracts; consume them for type-safe props and hooks.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Land UI improvements within two business days, attaching screenshots or recordings for reviewers.
+- Reflect UI changes in `.context/docs/tooling.md` or `.context/docs/project-overview.md` so onboarding remains accurate.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

@@ -2,7 +2,7 @@
 # Security Auditor Agent Playbook
 
 ## Mission
-Describe how the security auditor agent supports the team and when to engage it.
+Assess the threat surface across the SPA, Express API, and infrastructure. Engage this agent when secrets handling, compliance posture, or third-party integrations change.
 
 ## Responsibilities
 - Identify security vulnerabilities
@@ -22,12 +22,12 @@ Describe how the security auditor agent supports the team and when to engage it.
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Inspect sample prompts and copy for sensitive data that should not ship to production.
+- `client/` — Ensure UI changes do not expose secrets (e.g., logging keys) and that inputs remain sanitized.
+- `plans/` — Review recorded decisions for security implications before implementing them.
+- `scripts/` — Validate that seeds/migrations avoid leaking credentials or PII.
+- `server/` — Audit middleware, logging, and OpenRouter integrations for proper secret redaction and rate limiting.
+- `shared/` — Schema definitions; confirm columns containing sensitive content are handled appropriately.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Complete security reviews within two business days of request, including actionable remediation steps.
+- Update `.context/docs/security.md` after every audit so compliance evidence stays current.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

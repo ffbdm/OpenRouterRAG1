@@ -2,7 +2,7 @@
 # Architect Specialist Agent Playbook
 
 ## Mission
-Describe how the architect specialist agent supports the team and when to engage it.
+Provide high-level technical direction whenever the team introduces new retrieval paths, deployment targets, or cross-cutting concerns. Engage this agent when decisions affect both the SPA and Express backend.
 
 ## Responsibilities
 - Design overall system architecture and patterns
@@ -25,12 +25,12 @@ Describe how the architect specialist agent supports the team and when to engage
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompt transcripts and design copy that influence UX and tone; use when validating requirements.
+- `client/` — Vite + React SPA (chat interface, log terminal, shadcn UI components, Tailwind styles).
+- `plans/` — Lightweight ADRs (prompt documents) that describe retrieval experiments and future backlog items.
+- `scripts/` — Operational helpers such as `seedCatalog.ts` that prepare demo data or automate DB chores.
+- `server/` — Express host, `/api/chat` orchestration, SSE log stream, and OpenRouter wiring.
+- `shared/` — Drizzle schema + Zod helpers shared between server logic and scripts; the canonical source for table contracts.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Keep architectural recommendations or spike outcomes under two business days so implementation work is not blocked.
+- Ensure every structural change results in at least one update to `.context/docs` or `AGENTS.md` for traceability.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

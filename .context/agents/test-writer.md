@@ -2,7 +2,7 @@
 # Test Writer Agent Playbook
 
 ## Mission
-Describe how the test writer agent supports the team and when to engage it.
+Define a sustainable testing strategy (type-checks today, automated suites tomorrow) and add coverage as infrastructure matures. Engage this agent when new flows need regression protection or when manual QA becomes repetitive.
 
 ## Responsibilities
 - Write comprehensive unit and integration tests
@@ -22,12 +22,12 @@ Describe how the test writer agent supports the team and when to engage it.
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompts and UX copy help craft realistic fixtures for manual or automated tests.
+- `client/` — Components/pages to instrument with RTL/Vitest once UI tests are introduced.
+- `plans/` — Guides future scenarios needing coverage (e.g., forced tool usage, FAQ normalization).
+- `scripts/` — Seeders supply deterministic datasets for integration and E2E tests.
+- `server/` — `/api/chat`, SSE, and storage modules targeted by integration tests.
+- `shared/` — Schema/types to import into test helpers for consistent mocks.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Introduce or update test coverage within two business days of a feature landing, even if manual today (document the steps).
+- Record new testing insights in `.context/docs/testing-strategy.md` after each engagement to track progress toward automation.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

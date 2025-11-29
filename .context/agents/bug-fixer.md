@@ -2,7 +2,7 @@
 # Bug Fixer Agent Playbook
 
 ## Mission
-Describe how the bug fixer agent supports the team and when to engage it.
+Triage and resolve regressions surfaced by users, monitors, or SSE logs. Engage this agent when `/api/chat`, catalog searches, or the SPA behaves unexpectedly.
 
 ## Responsibilities
 - Analyze bug reports and error messages
@@ -22,12 +22,12 @@ Describe how the bug fixer agent supports the team and when to engage it.
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompt and copy references that help reproduce localization bugs.
+- `client/` — Chat UI, log terminal, and hooks—inspect when UI regressions or console errors appear.
+- `plans/` — Background on previous retrieval fixes; check before changing text normalization or tool logic.
+- `scripts/` — Re-run `seedCatalog.ts` or similar scripts to recreate data-dependent bugs.
+- `server/` — Express entrypoints, OpenRouter orchestration, SSE logging, and storage helpers where most runtime bugs originate.
+- `shared/` — Drizzle schema definitions; update when data shape mismatches cause failures.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Restore broken flows within two business days (from report to merged fix) and include reproduction + validation steps in the PR.
+- Capture at least one documentation or log snippet per fix so `.context/docs` reflects new learnings.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

@@ -2,7 +2,7 @@
 # Backend Specialist Agent Playbook
 
 ## Mission
-Describe how the backend specialist agent supports the team and when to engage it.
+Own the Express/Drizzle stack: design new endpoints, extend retrieval logic, and keep `/api/chat` healthy. Engage this agent when backend behavior, migrations, or observability must change.
 
 ## Responsibilities
 - Design and implement server-side architecture
@@ -25,12 +25,12 @@ Describe how the backend specialist agent supports the team and when to engage i
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompt transcripts plus UX copy references that drive backend messaging constraints.
+- `client/` — SPA calling `/api/chat`; useful when adjusting response payloads consumed by React Query.
+- `plans/` — Retrieval-focused ADRs that capture backend experiments such as FAQ normalization or catalog tooling.
+- `scripts/` — Utility commands (e.g., `seedCatalog.ts`) that exercise Drizzle outside the request cycle.
+- `server/` — Express entrypoints, routes, storage adapters, and SSE log stream code.
+- `shared/` — Drizzle schema + Zod types; modify here before running `npm run db:push`.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Deliver backend fixes or enhancements within two business days, including evidence (logs, screenshots) in the PR.
+- Ensure each backend engagement updates `.context/docs` or comments with observed behavior so future agents can trace decisions.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

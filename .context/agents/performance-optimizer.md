@@ -2,7 +2,7 @@
 # Performance Optimizer Agent Playbook
 
 ## Mission
-Describe how the performance optimizer agent supports the team and when to engage it.
+Profile the chat experience end-to-end, remove latency hotspots, and keep bundle and query performance within acceptable targets. Engage this agent when response times regress or infrastructure costs need trimming.
 
 ## Responsibilities
 - Identify performance bottlenecks
@@ -22,12 +22,12 @@ Describe how the performance optimizer agent supports the team and when to engag
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — UX references describing acceptable latency cues shown to users.
+- `client/` — Inspect React components, React Query configs, and bundle size impacts.
+- `plans/` — Understand trade-offs made during previous retrieval improvements before refactoring them.
+- `scripts/` — Use seeds to create realistic datasets for profiling.
+- `server/` — Evaluate middleware overhead, OpenRouter call sequencing, and Drizzle queries.
+- `shared/` — Schema definitions; adjust indexes or constraints here when optimizing DB access.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Cut identified latency regressions within two business days, sharing before/after numbers in the PR.
+- Document optimizations in `.context/docs/architecture.md` or `.context/docs/data-flow.md` so future work builds on accurate baselines.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

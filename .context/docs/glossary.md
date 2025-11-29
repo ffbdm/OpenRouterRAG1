@@ -5,18 +5,20 @@
 List project-specific terminology, acronyms, domain entities, and user personas.
 
 ## Core Terms
-- <!-- agent-fill:term-one -->**Term** — Definition, relevance, and where it surfaces in the codebase.<!-- /agent-fill -->
-- <!-- agent-fill:term-two -->**Term** — Definition, domain context, related modules.<!-- /agent-fill -->
+- **RAG Chat** — Retrieval-Augmented Generation workflow implemented by `/api/chat`; the model combines OpenRouter completions with FAQ/catalog snippets fetched via Drizzle before crafting a response.
+- **Catalog Tool** — OpenRouter function (`searchCatalog`) exposed in `server/routes.ts` that queries `catalog_items` for active products (name, manufacturer, price, tags). Results are serialized into system messages for the follow-up completion.
 
 ## Acronyms & Abbreviations
-- <!-- agent-fill:acronym -->**ABC** — Expanded form; why we use it; associated services or APIs.<!-- /agent-fill -->
+- **SSE (Server-Sent Events)** — Streaming HTTP protocol used by `/api/logs/stream` to push backend logs into the SPA terminal in real time.
 
 ## Personas / Actors
-- <!-- agent-fill:persona -->**Persona Name** — Goals, key workflows, pain points addressed by the system.<!-- /agent-fill -->
+- **Atendente de Suporte** — Portuguese-speaking agent who needs quick, auditable answers for customer FAQs and catalog queries without leaving the web dashboard.
 
 ## Domain Rules & Invariants
-- Capture business rules, validation constraints, or compliance requirements that the code enforces.
-- Note any region, localization, or regulatory nuances.
+- Responses must remain in Portuguese with concise, direct tone (enforced by the system prompt in `server/routes.ts`).
+- Catalog searches should only surface items with `status = 'ativo'`; archived entries stay hidden unless explicitly requested in future iterations.
+- FAQ queries normalize diacritics and casing before hitting the database to handle plural/singular variations documented in `plans/searchFaqsImprovement.prompt.md`.
+- Debug metadata returned to the UI (counts, tool usage) should never include sensitive env information—only aggregate telemetry.
 
 <!-- agent-readonly:guidance -->
 ## AI Update Checklist

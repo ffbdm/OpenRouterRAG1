@@ -2,7 +2,7 @@
 # Devops Specialist Agent Playbook
 
 ## Mission
-Describe how the devops specialist agent supports the team and when to engage it.
+Create consistent build/deploy paths for the combined SPA + Express app, wire up observability, and keep secrets/configs aligned across environments. Engage this agent when pipelines, hosting footprints, or runtime monitoring change.
 
 ## Responsibilities
 - Design and maintain CI/CD pipelines
@@ -25,12 +25,12 @@ Describe how the devops specialist agent supports the team and when to engage it
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompt transcripts and UX notes that inform rollout messaging when deploying demos.
+- `client/` — The Vite bundle served in production; monitor for build output changes impacting Vercel routing.
+- `plans/` — ADR-style docs capturing infra wishes (e.g., forced tool usage) that may require runtime flags.
+- `scripts/` — Deployment helpers such as seeds you might run pre/post release.
+- `server/` — Express runtime, SSE endpoints, and log formatting; integrate with your logging/monitoring stack here.
+- `shared/` — Schema/types that influence migrations and backup plans; run `npm run db:push` after edits.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Deliver CI/CD or infrastructure changes within two business days, including deployment + rollback documentation.
+- Keep `.context/docs/tooling.md` or `.context/docs/security.md` updated after each pipeline/secrets change for auditability.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

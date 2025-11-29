@@ -2,7 +2,7 @@
 # Mobile Specialist Agent Playbook
 
 ## Mission
-Describe how the mobile specialist agent supports the team and when to engage it.
+Explore and prototype mobile surfaces (React Native or wrappers) that consume the same `/api/chat` endpoint. Engage this agent when features must extend beyond the web SPA or require device-specific UX guidance.
 
 ## Responsibilities
 - Develop native and cross-platform mobile applications
@@ -25,12 +25,12 @@ Describe how the mobile specialist agent supports the team and when to engage it
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Tone and UX cues to replicate on mobile surfaces.
+- `client/` — Reference component structure and API usage patterns when porting to React Native.
+- `plans/` — Understand product reasoning (catalog-first, FAQ fallback) before adapting flows.
+- `scripts/` — Seed data so mobile demos work against the same datasets.
+- `server/` — `/api/chat` and SSE implementations that mobile clients must integrate with (possibly via fallbacks like polling).
+- `shared/` — Types to re-use in mobile clients for consistent contracts.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Deliver proof-of-concept mobile updates within two business days of request, including API compatibility notes.
+- Capture mobile-specific findings in `.context/docs/data-flow.md` or `.context/docs/project-overview.md` whenever transport assumptions change.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

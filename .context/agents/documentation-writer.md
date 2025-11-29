@@ -2,7 +2,7 @@
 # Documentation Writer Agent Playbook
 
 ## Mission
-Describe how the documentation writer agent supports the team and when to engage it.
+Keep `.context/docs`, `AGENTS.md`, and user-facing notes in sync with the actual implementation. Engage this agent whenever code behavior changes or new workflows need written guidance.
 
 ## Responsibilities
 - Create clear, comprehensive documentation
@@ -22,12 +22,12 @@ Describe how the documentation writer agent supports the team and when to engage
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Source material for Portuguese tone, prompts, and UX copy.
+- `client/` — React SPA; cite components/pages when documenting UI behavior.
+- `plans/` — Prompt-based ADRs that justify retrieval decisions. Reference them when writing historical context.
+- `scripts/` — Operational helpers like `seedCatalog.ts`; document usage whenever data refresh steps matter.
+- `server/` — Express API, SSE streaming, and storage logic; describe flow changes here first.
+- `shared/` — Schema/types referenced by both layers; update docs when columns or enums change.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Publish documentation updates within one business day of the associated code change.
+- Ensure every engagement links to at least one source of evidence (commit, issue, log) captured in `.context/docs` or PR notes.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

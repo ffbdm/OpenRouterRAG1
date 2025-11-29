@@ -2,7 +2,7 @@
 # Database Specialist Agent Playbook
 
 ## Mission
-Describe how the database specialist agent supports the team and when to engage it.
+Design and evolve the Drizzle/Postgres schema, ensuring FAQ and catalog queries stay fast and accurate. Engage this agent when migrations, seeding, or indexing strategies are required.
 
 ## Responsibilities
 - Design and optimize database schemas
@@ -25,12 +25,12 @@ Describe how the database specialist agent supports the team and when to engage 
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Prompt logs that reveal how users phrase catalog/FAQ queries (useful for schema tuning).
+- `client/` — Surfaces how responses are rendered; confirm schema changes won't break UI expectations.
+- `plans/` — ADR-style prompts describing retrieval improvements; reference before altering normalization/tokenization.
+- `scripts/` — Contains `seedCatalog.ts` and future migration helpers; modify alongside schema updates.
+- `server/` — Storage adapters calling Drizzle; ensure interface changes remain backward compatible.
+- `shared/` — Source of truth for table definitions, enums, and Zod schemas. Update first, then run `npm run db:push`.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -58,8 +58,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Ship schema or query changes within two business days of request, including migration + seeding instructions in the PR.
+- Document each change in `.context/docs/data-flow.md` or `.context/docs/architecture.md` so downstream agents know the new shape.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

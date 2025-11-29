@@ -5,19 +5,28 @@
 Collect the scripts, automation, and editor settings that keep contributors efficient.
 
 ## Required Tooling
-- <!-- agent-fill:tool-required -->Tool name — How to install, version requirements, what it powers.<!-- /agent-fill -->
+- **Node.js 20+ & npm 10+** — Install via nvm or Volta. Required for running Vite, Express, tsx, and esbuild.
+- **Postgres access (Neon or local)** — Provision a Neon database or run Postgres locally; populate `DATABASE_URL` for Drizzle + runtime queries.
+- **OpenRouter API key** — Request from https://openrouter.ai; export `OPENROUTER_API_KEY` locally and in deployment targets.
+- **Drizzle Kit (`npx drizzle-kit ...`)** — Ships in devDependencies; used by `npm run db:push` to sync schema changes.
 
 ## Recommended Automation
-- Pre-commit hooks, linting/formatting commands, code generators, or scaffolding scripts.
-- Shortcuts or watch modes for local development loops.
+- Add a git pre-push hook that runs `npm run check` to catch type regressions before CI.
+- Use `npm run dev` during feature work; it automatically reloads the SPA and Express routes while mirroring production logging.
+- After editing `shared/schema.ts`, run `npm run db:push` followed by `npm run tsx scripts/seedCatalog.ts` to validate migrations plus default data in one loop.
+- `tsx` (already installed) can run ad-hoc scripts: `npm run tsx path/to/file.ts` without compiling.
 
 ## IDE / Editor Setup
-- Extensions or plugins that catch issues early.
-- Snippets, templates, or workspace settings worth sharing.
+- Enable TypeScript strict mode support (VS Code ships it by default) and point `tsconfig.json` at both client/server so path aliases resolve.
+- Install Tailwind, ESLint, and shadcn/ui snippets to speed up component work.
+- Configure an HTTP client extension (REST Client, Thunder Client) to hit `/api/chat` with canned payloads for regression tests.
+- Use EditorConfig or VS Code settings to enforce 2-space indentation and newline-at-EOF conventions described in `AGENTS.md`.
 
 ## Productivity Tips
-- Terminal aliases, container workflows, or local emulators mirroring production.
-- Links to shared scripts or dotfiles used across the team.
+- Keep a `.env.local` with separate keys for dev vs. demo to avoid rotating secrets after sharing logs.
+- Tail `/api/logs/stream` in the browser while also watching the terminal; they expose different truncation levels.
+- When debugging OpenRouter payloads, temporarily set `tool_choice` to a specific function to reproduce forced execution paths.
+- Capture manual QA steps in your PR body so AI agents can replay them quickly during future regression passes.
 
 <!-- agent-readonly:guidance -->
 ## AI Update Checklist

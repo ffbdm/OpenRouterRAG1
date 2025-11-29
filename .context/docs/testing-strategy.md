@@ -2,24 +2,33 @@
 <!-- agent-update:start:testing-strategy -->
 # Testing Strategy
 
-Document how quality is maintained across the codebase.
+Quality today is enforced through strict TypeScript checks, manual E2E validation in the browser, and targeted logging of AI/tool interactions. Automated Jest/Playwright suites are not yet in place, so contributors must document manual steps inside their PRs until we introduce test scaffolding.
 
 ## Test Types
-- Unit: List frameworks (e.g., Jest) and file naming conventions.
-- Integration: Describe scenarios and required tooling.
-- End-to-end: Note harnesses or environments if applicable.
+- **Type-level/unit coverage:** `npm run check` runs the repo-wide TypeScript program which catches regressions in shared types, storage contracts, and React props.
+- **Manual integration checks:** Run `npm run dev`, submit Portuguese prompts that hit `searchFaqs` and `searchCatalog`, and verify the debug payload plus SSE logs reflect the expected DB counts.
+- **Ad-hoc scripts:** `scripts/seedCatalog.ts` and future drizzly scripts double as sanity checks for schema/migration health.
+- **Planned automation:** When time allows, add Vitest or Jest for storage utilities and Playwright smoke tests for the chat UI/log terminal.
 
 ## Running Tests
-- Execute all tests with `npm run test`.
-- Use watch mode locally: `npm run test -- --watch`.
-- Add coverage runs before releases: `npm run test -- --coverage`.
+- **TypeScript program:** `npm run check`
+- **Production bundle sanity:** `npm run build && npm run start`
+- **Manual E2E:**
+	1. Start dev mode (`npm run dev`).
+	2. Open the SPA, send prompts that trigger FAQ and catalog flows.
+	3. Watch `/api/logs/stream` via the in-app terminal for tool invocations and errors.
+- **Database validation:** Run `npm run tsx scripts/seedCatalog.ts` against a test database and confirm the UI can surface seeded entries.
 
 ## Quality Gates
-- Define minimum coverage expectations.
-- Capture linting or formatting requirements before merging.
+- PRs must pass `npm run check` locally; CI parity will rely on the same command once pipelines are configured.
+- Include screenshots or terminal excerpts proving manual test steps (catalog hit counts, OpenRouter errors) when behavior changes.
+- Run `npm run build` before merging any change that touches bundler, shared schema, or environment wiring to ensure the esbuild/Vite pipeline stays green.
 
 ## Troubleshooting
-- Document flaky suites, long-running tests, or environment quirks.
+- **Missing env vars:** If `npm run dev` fails immediately, confirm `DATABASE_URL` and `OPENROUTER_API_KEY` are exported; the server hard-fails when they are absent.
+- **Tokenization edge cases:** When `searchFaqs` returns zero rows, inspect the server logs for the normalized tokens to decide whether to adjust the query or seed data.
+- **SSE disconnects:** Browser dev tools throttling can pause `/api/logs/stream`; reloading the UI replays buffered logs.
+- **Long-running builds:** If `npm run build` stalls, ensure the client bundle was cleaned (`rm -rf dist`) and esbuild is installed (pnpm/npm sometimes skip optional deps).
 
 <!-- agent-readonly:guidance -->
 ## AI Update Checklist

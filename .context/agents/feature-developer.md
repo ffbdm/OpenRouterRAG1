@@ -2,7 +2,7 @@
 # Feature Developer Agent Playbook
 
 ## Mission
-Describe how the feature developer agent supports the team and when to engage it.
+Ship end-to-end features that span the React SPA, Express API, and Postgres storage. Engage this agent when roadmap items require coordinated client/server work.
 
 ## Responsibilities
 - Implement new features according to specifications
@@ -22,12 +22,12 @@ Describe how the feature developer agent supports the team and when to engage it
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — Design copy, prompt transcripts, and UX cues to follow when adding UI surface area.
+- `client/` — Components, hooks, and pages where most feature work starts.
+- `plans/` — ADR-like docs capturing why retrieval works the way it does; consult before diverging.
+- `scripts/` — CLI aids for seeding or migrations you might extend when features require new data.
+- `server/` — `/api/chat` logic, OpenRouter orchestration, SSE infrastructure, and storage adapters.
+- `shared/` — Schema/types to update when features introduce new fields or enums.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Deliver scoped feature increments within two business days of kickoff, including manual test notes and screenshots.
+- Update `.context/docs/project-overview.md` or related guides whenever a feature changes workflows or dependencies.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:

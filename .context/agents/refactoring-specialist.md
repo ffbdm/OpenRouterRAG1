@@ -2,7 +2,7 @@
 # Refactoring Specialist Agent Playbook
 
 ## Mission
-Describe how the refactoring specialist agent supports the team and when to engage it.
+Tame technical debt and improve readability without changing observable behavior. Engage this agent when modules grow unwieldy or repeated logic appears across client/server layers.
 
 ## Responsibilities
 - Identify code smells and improvement opportunities
@@ -22,12 +22,12 @@ Describe how the refactoring specialist agent supports the team and when to enga
 - Contributor guide: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## Repository Starting Points
-- `attached_assets/` — TODO: Describe the purpose of this directory.
-- `client/` — TODO: Describe the purpose of this directory.
-- `plans/` — TODO: Describe the purpose of this directory.
-- `scripts/` — TODO: Describe the purpose of this directory.
-- `server/` — TODO: Describe the purpose of this directory.
-- `shared/` — TODO: Describe the purpose of this directory.
+- `attached_assets/` — UX tone references; ensure refactors keep localized copy consistent.
+- `client/` — Components/hooks ready for module extraction, accessibility improvements, or state cleanup.
+- `plans/` — Insight into why retrieval logic evolved; respect constraints captured here when refactoring.
+- `scripts/` — Supporting utilities that may share logic worth consolidating.
+- `server/` — Express routing, storage helpers, and OpenRouter orchestration code that often benefits from modularization.
+- `shared/` — Schema/types; refactor with care to avoid drifting from database contracts.
 
 ## Documentation Touchpoints
 - [Documentation Index](../docs/README.md) — agent-update:docs-index
@@ -55,8 +55,8 @@ Track effectiveness of this agent's contributions:
 - **Collaboration:** PR review turnaround time, feedback quality, knowledge sharing
 
 **Target Metrics:**
-- TODO: Define measurable goals specific to this agent (e.g., "Reduce bug resolution time by 30%")
-- TODO: Track trends over time to identify improvement areas
+- Convert targeted refactors within two business days and demonstrate unchanged behavior via screenshots/logs.
+- Update `.context/docs/architecture.md` or `.context/docs/tooling.md` when refactors introduce new patterns or utilities.
 
 ## Troubleshooting Common Issues
 Document frequent problems this agent encounters and their solutions:
