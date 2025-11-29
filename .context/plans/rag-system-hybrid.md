@@ -30,7 +30,8 @@ related_agents:
 <!-- agent-update:start:plan-rag-system-hybrid -->
 # Rag System Hybrid Plan
 
-> Criar um sistema hibrido de rag, onde a llm irá utilizar tanto as call tools quanto o storage do catalogo. Para este rag da storage, criar um catalogo vetorizado onde a llm ira realizar suas buscas neste catalogo quando o usuario perguntar algo sobre agronomia em geral.
+> Criar um sistema hibrido de rag, onde a llm irá utilizar tanto as call tools quanto o storage do catalogo. Para este rag da storage, criar um catalogo vetorizado onde a llm ira realizar suas buscas neste catalogo quando o usuario perguntar algo sobre agronomia de forma geral. 
+> A ideia é o cliente encontrar um produto que precisa diante de uma dúvida que tenha, onde os catalogos possam ser úteis para ajuda-lo.
 
 ## Task Snapshot
 - **Primary goal:** Implement a hybrid RAG system in `server/` that combines dynamic LLM tool calls with retrieval from a vectorized agronomy catalog stored in the database, enabling accurate responses to general agronomy queries without disrupting existing flows.
