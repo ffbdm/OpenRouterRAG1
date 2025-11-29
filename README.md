@@ -12,7 +12,7 @@ flowchart TD
     B -- yes --> B1[Ask for more details\nwithout querying DB] --> R[Response to client]
     B -- no --> C{Detect catalog/agro intent?}
 
-    C -- yes --> P[Pre-search hybrid\nstorage.searchCatalogHybrid\n(lexical + vector)] --> PCTX[Inject payload into context (system)] --> D
+    C -- yes --> P[Pre-search hybrid\nstorage.searchCatalogHybrid\nlexical + vector] --> PCTX[Inject payload into context (system)] --> D
     C -- no --> D
 
     D[LLM call #1 (OpenRouter)\ntools: searchFaqs, searchCatalog] --> E{Tool calls?}
@@ -21,7 +21,7 @@ flowchart TD
     E -- searchCatalog --> H[storage.searchCatalogHybrid]
     H --> H1[Lexical search\nILIKE over name/description/\ncategory/manufacturer/tags]
     H --> H2[Embeddings via OpenRouter\ntext-embedding-3-small]
-    H2 -->|success| H3[Vector search\ncatalog_item_embeddings\ndistance <#>]
+    H2 -->|success| H3[Vector search\ncatalog_item_embeddings\ndistance operator]
     H2 -->|fail/no key| H4[Fallback: lexical only\nset fallbackReason]
     H1 & H3 --> H5[mergeCatalogResults\nprioritize vector, dedupe,\nrespect limit] --> HCTX[Add payload to context] --> G
     E -- none --> G[Continue with current context]
