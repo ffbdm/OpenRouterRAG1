@@ -6,42 +6,39 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 
 ```mermaid
 flowchart TD
-    U[User sends text] --> A[/POST /api/chat/]
+    U[User text] --> A[POST /api/chat]
 
-    A --> B{Generic product question?}
-    B -->|yes| B1[Ask for more details<br/>without querying DB] --> R[Response to client]
-    B -->|no| C{Detect catalog/agro intent?}
+    A --> B{Generic product?}
+    B -->|yes| Clarify[Ask for details<br/>skip DB] --> R[Reply]
+    B -->|no| Intent{Catalog/agro intent?}
 
-    C -->|yes| P[Pre-search hybrid<br/>storage.searchCatalogHybrid<br/>lexical + vector]
-    C -->|no| D
-    P --> PCTX[Inject payload into context as system message]
-    PCTX --> D
+    Intent -->|yes| Pre[Pre-search hybrid]
+    Pre --> PreCtx[Add system context]
+    Intent -->|no| FirstLLM[LLM call #1<br/>tools available]
+    PreCtx --> FirstLLM
 
-    D[LLM call #1 (OpenRouter)<br/>tools: searchFaqs, searchCatalog] --> E{Tool calls?}
+    FirstLLM -->|searchFaqs| Faqs[searchFaqs]
+    Faqs --> FaqCtx[Add FAQ context]
+    FaqCtx --> MergeCtx[Context ready]
 
-    E -->|searchFaqs| F[storage.searchFaqs<br/>tokens/ILIKE over FAQs]
-    F --> FCTX[Add results to context]
-    FCTX --> G
+    FirstLLM -->|searchCatalog| Hybrid[searchCatalogHybrid]
+    Hybrid --> Lex[Lexical search]
+    Hybrid --> Emb[Generate embedding]
+    Emb -->|ok| Vec[Vector search]
+    Emb -->|fail| Fallback[Lexical only]
+    Lex --> Merge[mergeCatalogResults]
+    Vec --> Merge
+    Fallback --> Merge
+    Merge --> CatCtx[Add catalog context]
+    CatCtx --> MergeCtx
 
-    E -->|searchCatalog| H[storage.searchCatalogHybrid]
-    H --> H1[Lexical search<br/>ILIKE over name/description/<br/>category/manufacturer/tags]
-    H --> H2[Embeddings via OpenRouter<br/>text-embedding-3-small]
-    H2 -->|success| H3[Vector search<br/>catalog_item_embeddings<br/>distance operator]
-    H2 -->|fail/no key| H4[Fallback: lexical only<br/>set fallbackReason]
-    H1 --> H5[mergeCatalogResults<br/>prioritize vector, dedupe,<br/>respect limit]
-    H3 --> H5
-    H4 --> H5
-    H5 --> HCTX[Add payload to context]
-    HCTX --> G
+    FirstLLM -->|none| MergeCtx
 
-    E -->|none| G[Continue with current context]
-
-    G --> L[LLM call #2 (final answer)] --> R[Response to client + debug]
+    MergeCtx --> Final[LLM call #2<br/>final answer]
+    Final --> R[Reply + debug]
 
     %% Debug/stats
-    P --> S[Log timings and counts<br/>vectorMs, lexicalMs, mergeMs,<br/>vectorCount, lexicalCount, embeddingUsed]
-    H5 --> S
-    R --> DBG[Debug payload: query flags, counts, fallbackReason, timings]
+    Merge --> Stats[Log timings and counts]
 ```
 
 ## Testes rápidos
