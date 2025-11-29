@@ -32,30 +32,35 @@ related_agents:
 > Criar na UI um acesso para o catalogo. onde possa ter CRUD.
 
 ## Task Snapshot
-- **Primary goal:** TODO: Describe the outcome to achieve.
-- **Success signal:** TODO: Define how the team will know the plan worked.
+- **Primary goal:** Ship a UI entry point for the catalog that lets users list, create, edit, and delete items with clear Portuguese copy and confirmations.
+- **Success signal:** Catalog CRUD flows are reachable from the app shell, persist changes to the catalog data source, pass type checks, and include basic tests plus screenshots of list/create/edit/delete in the PR.
 - **Key references:**
   - [Documentation Index](../docs/README.md)
+  - [Project Overview](../docs/project-overview.md)
+  - [Architecture Notes](../docs/architecture.md)
+  - [Development Workflow](../docs/development-workflow.md)
+  - [Testing Strategy](../docs/testing-strategy.md)
+  - [Glossary & Domain Concepts](../docs/glossary.md)
   - [Agent Handbook](../agents/README.md)
   - [Plans Index](./README.md)
 
 ## Agent Lineup
 | Agent | Role in this plan | Playbook | First responsibility focus |
 | --- | --- | --- | --- |
-| Code Reviewer | TODO: Describe why this agent is involved. | [Code Reviewer](../agents/code-reviewer.md) | Review code changes for quality, style, and best practices |
-| Bug Fixer | TODO: Describe why this agent is involved. | [Bug Fixer](../agents/bug-fixer.md) | Analyze bug reports and error messages |
-| Feature Developer | TODO: Describe why this agent is involved. | [Feature Developer](../agents/feature-developer.md) | Implement new features according to specifications |
-| Refactoring Specialist | TODO: Describe why this agent is involved. | [Refactoring Specialist](../agents/refactoring-specialist.md) | Identify code smells and improvement opportunities |
-| Test Writer | TODO: Describe why this agent is involved. | [Test Writer](../agents/test-writer.md) | Write comprehensive unit and integration tests |
-| Documentation Writer | TODO: Describe why this agent is involved. | [Documentation Writer](../agents/documentation-writer.md) | Create clear, comprehensive documentation |
-| Performance Optimizer | TODO: Describe why this agent is involved. | [Performance Optimizer](../agents/performance-optimizer.md) | Identify performance bottlenecks |
-| Security Auditor | TODO: Describe why this agent is involved. | [Security Auditor](../agents/security-auditor.md) | Identify security vulnerabilities |
-| Backend Specialist | TODO: Describe why this agent is involved. | [Backend Specialist](../agents/backend-specialist.md) | Design and implement server-side architecture |
-| Frontend Specialist | TODO: Describe why this agent is involved. | [Frontend Specialist](../agents/frontend-specialist.md) | Design and implement user interfaces |
-| Architect Specialist | TODO: Describe why this agent is involved. | [Architect Specialist](../agents/architect-specialist.md) | Design overall system architecture and patterns |
-| Devops Specialist | TODO: Describe why this agent is involved. | [Devops Specialist](../agents/devops-specialist.md) | Design and maintain CI/CD pipelines |
-| Database Specialist | TODO: Describe why this agent is involved. | [Database Specialist](../agents/database-specialist.md) | Design and optimize database schemas |
-| Mobile Specialist | TODO: Describe why this agent is involved. | [Mobile Specialist](../agents/mobile-specialist.md) | Develop native and cross-platform mobile applications |
+| Code Reviewer | Enforce UI patterns, Tailwind conventions, and regression safety before merging. | [Code Reviewer](../agents/code-reviewer.md) | Review code changes for quality, style, and best practices |
+| Bug Fixer | Triage catalog CRUD defects surfaced during QA or after deploy. | [Bug Fixer](../agents/bug-fixer.md) | Analyze bug reports and error messages |
+| Feature Developer | Implement catalog list/detail/create/edit/delete flows plus navigation entry point. | [Feature Developer](../agents/feature-developer.md) | Implement new features according to specifications |
+| Refactoring Specialist | Keep shared hooks/components clean while adding CRUD plumbing. | [Refactoring Specialist](../agents/refactoring-specialist.md) | Identify code smells and improvement opportunities |
+| Test Writer | Add component/API interaction tests for catalog actions and error handling. | [Test Writer](../agents/test-writer.md) | Write comprehensive unit and integration tests |
+| Documentation Writer | Update UX notes or README snippets describing catalog access and usage. | [Documentation Writer](../agents/documentation-writer.md) | Create clear, comprehensive documentation |
+| Performance Optimizer | Watch render/query patterns to avoid slow catalog lists on large datasets. | [Performance Optimizer](../agents/performance-optimizer.md) | Identify performance bottlenecks |
+| Security Auditor | Ensure destructive actions have confirmation, auth, and no secret leakage. | [Security Auditor](../agents/security-auditor.md) | Identify security vulnerabilities |
+| Backend Specialist | Confirm API endpoints and storage contract support CRUD safely. | [Backend Specialist](../agents/backend-specialist.md) | Design and implement server-side architecture |
+| Frontend Specialist | Shape interaction design, empty states, and accessibility for catalog UI. | [Frontend Specialist](../agents/frontend-specialist.md) | Design and implement user interfaces |
+| Architect Specialist | Validate state management and API layering align with existing patterns. | [Architect Specialist](../agents/architect-specialist.md) | Design overall system architecture and patterns |
+| Devops Specialist | Keep build/start scripts and env wiring intact for new catalog flows. | [Devops Specialist](../agents/devops-specialist.md) | Design and maintain CI/CD pipelines |
+| Database Specialist | Verify catalog schema usage and migrations if new fields appear. | [Database Specialist](../agents/database-specialist.md) | Design and optimize database schemas |
+| Mobile Specialist | Spot responsive issues so catalog UI works on small viewports. | [Mobile Specialist](../agents/mobile-specialist.md) | Develop native and cross-platform mobile applications |
 
 ## Documentation Touchpoints
 | Guide | File | Task Marker | Primary Inputs |
@@ -75,58 +80,61 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 ### Identified Risks
 | Risk | Probability | Impact | Mitigation Strategy | Owner |
 | --- | --- | --- | --- | --- |
-| TODO: Dependency on external team | Medium | High | Early coordination meeting, clear requirements | TODO: Name |
-| TODO: Insufficient test coverage | Low | Medium | Allocate time for test writing in Phase 2 | TODO: Name |
+| Catalog API contract incomplete for CRUD (list/create/update/delete). | Medium | High | Align with backend/storage owners early; add stub handlers if needed. | Backend Specialist |
+| Destructive actions without confirmation lead to data loss. | Medium | High | Require confirmation dialogs and optimistic rollback; add tests. | Frontend Specialist |
+| UI performance degrades with large catalog lists. | Low | Medium | Use pagination or virtualization; reuse query caching. | Performance Optimizer |
+| Localized copy/instructions incomplete. | Medium | Medium | Review against glossary and design guidelines; gather approvals. | Documentation Writer |
 
 ### Dependencies
-- **Internal:** TODO: List dependencies on other teams, services, or infrastructure
-- **External:** TODO: List dependencies on third-party services, vendors, or partners
-- **Technical:** TODO: List technical prerequisites or required upgrades
+- **Internal:** Express catalog routes/storage layer, shared Drizzle schema, React Query client, design guidelines.
+- **External:** Neon/Postgres availability with catalog data; OpenRouter not directly required but chat UI should remain unaffected.
+- **Technical:** Stable TypeScript types for catalog items; Vite/esbuild build pipeline; env vars `DATABASE_URL` present.
 
 ### Assumptions
-- TODO: Document key assumptions being made (e.g., "Assume current API schema remains stable")
-- TODO: Note what happens if assumptions prove false
+- Catalog schema in `shared/schema.ts` remains the source of truth; API will expose CRUD endpoints matching it.
+- Navigation allows adding a catalog entry point without major IA changes; if not, revisit design with stakeholders.
+- No new auth model is introduced; if permissions are required, scope plan to add guards and role checks.
 
 ## Resource Estimation
 
 ### Time Allocation
 | Phase | Estimated Effort | Calendar Time | Team Size |
 | --- | --- | --- | --- |
-| Phase 1 - Discovery | TODO: e.g., 2 person-days | 3-5 days | 1-2 people |
-| Phase 2 - Implementation | TODO: e.g., 5 person-days | 1-2 weeks | 2-3 people |
-| Phase 3 - Validation | TODO: e.g., 2 person-days | 3-5 days | 1-2 people |
-| **Total** | **TODO: total** | **TODO: total** | **-** |
+| Phase 1 - Discovery | 1 person-day | 1-2 days | 1-2 people |
+| Phase 2 - Implementation | 4-5 person-days | 1 week | 2-3 people |
+| Phase 3 - Validation | 2 person-days | 3-4 days | 1-2 people |
+| **Total** | **7-8 person-days** | **~2 weeks elapsed** | **-** |
 
 ### Required Skills
-- TODO: List required expertise (e.g., "React experience", "Database optimization", "Infrastructure knowledge")
-- TODO: Identify skill gaps and training needs
+- React + TypeScript with React Query and shadcn/ui; Express + Drizzle familiarity; Tailwind styling; UX copy in Portuguese; Postgres basics for catalog data.
+- Fill gaps via pairing with backend/front-end specialists and reviewing design guidelines.
 
 ### Resource Availability
-- **Available:** TODO: List team members and their availability
-- **Blocked:** TODO: Note any team members with conflicting priorities
-- **Escalation:** TODO: Name of person to contact if resources are insufficient
+- **Available:** Frontend + backend contributors currently rotating on catalog work; QA bandwidth for validation.
+- **Blocked:** None known; confirm database access early.
+- **Escalation:** Tech lead/maintainer for catalog (request in standup) if blockers arise.
 
 ## Working Phases
 ### Phase 1 — Discovery & Alignment
 **Steps**
-1. TODO: Outline discovery tasks and assign the accountable owner.
-2. TODO: Capture open questions that require clarification.
+1. Audit existing catalog data model, API routes, and UI entry points; confirm CRUD requirements and permissions (Owner: Backend Specialist).
+2. Identify UX flows, empty states, and confirmation patterns using glossary/design guidelines; list open questions (Owner: Frontend Specialist).
 
 **Commit Checkpoint**
 - After completing this phase, capture the agreed context and create a commit (for example, `git commit -m "chore(plan): complete phase 1 discovery"`).
 
 ### Phase 2 — Implementation & Iteration
 **Steps**
-1. TODO: Note build tasks, pairing expectations, and review cadence.
-2. TODO: Reference docs or playbooks to keep changes aligned.
+1. Implement navigation entry to catalog view plus list/detail + modal/page for create/edit with form validation and delete confirmations (pair FE/BE as needed).
+2. Wire API mutations/queries, handle loading/error states, and add tests aligned with [Testing Strategy](../docs/testing-strategy.md) and [Development Workflow](../docs/development-workflow.md).
 
 **Commit Checkpoint**
 - Summarize progress, update cross-links, and create a commit documenting the outcomes of this phase (for example, `git commit -m "chore(plan): complete phase 2 implementation"`).
 
 ### Phase 3 — Validation & Handoff
 **Steps**
-1. TODO: Detail testing, verification, and documentation updates.
-2. TODO: Document evidence the team must capture for maintainers.
+1. Run TypeScript checks, manual CRUD QA, and capture screenshots/GIFs; verify no regressions in chat flow.
+2. Update docs (README/UX notes) with access instructions; collect evidence (test logs, screenshots) for maintainers.
 
 **Commit Checkpoint**
 - Record the validation evidence and create a commit signalling the handoff completion (for example, `git commit -m "chore(plan): complete phase 3 validation"`).
@@ -149,14 +157,14 @@ When to initiate rollback:
 - Estimated Time: < 1 hour
 
 #### Phase 2 Rollback
-- Action: TODO: Revert commits, restore database to pre-migration snapshot
-- Data Impact: TODO: Describe any data loss or consistency concerns
-- Estimated Time: TODO: e.g., 2-4 hours
+- Action: Revert catalog UI/route commits; disable navigation entry; restore database to pre-change snapshot if mutations shipped.
+- Data Impact: Possible loss of catalog edits during feature window; coordinate with DB backups.
+- Estimated Time: 2-4 hours
 
 #### Phase 3 Rollback
-- Action: TODO: Full deployment rollback, restore previous version
-- Data Impact: TODO: Document data synchronization requirements
-- Estimated Time: TODO: e.g., 1-2 hours
+- Action: Roll back deployment to prior build, flush CDN if applicable, and re-enable previous catalog UI (if any).
+- Data Impact: Align catalog rows to last known good snapshot; reconcile edits made post-release.
+- Estimated Time: 1-2 hours
 
 ### Post-Rollback Actions
 1. Document reason for rollback in incident report
@@ -172,7 +180,7 @@ When to initiate rollback:
 4. Capture learnings in the relevant documentation file so future runs improve.
 
 ## Evidence & Follow-up
-- TODO: List artifacts to collect (logs, PR links, test runs, design notes).
-- TODO: Record follow-up actions or owners.
+- Collect PR link, screenshots/GIFs of CRUD flows, TypeScript/check/test outputs, and any backend API contract notes.
+- Follow-ups: confirm database backup schedule, plan pagination/filters for large catalogs, and schedule post-release monitoring owner.
 
 <!-- agent-update:end -->
