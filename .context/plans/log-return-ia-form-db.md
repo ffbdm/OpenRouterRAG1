@@ -123,6 +123,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 1. Review server-side code for tool call handling (e.g., routes involving AI functions) and map data returns to AI. Reference Data Flow & Integrations doc.  
 2. Consult Architect Specialist for best practices on logging in the system architecture. Capture any clarifications needed on log levels or formats.  
 
+**Status 2025-11-29:** Revisamos `server/routes.ts` e confirmamos o fluxo de tool calls descrito em [Architecture Notes](../docs/architecture.md) e [Data Flow & Integrations](../docs/data-flow.md), identificando o ponto após cada `storage.search*` como local ideal para inserir logs do payload enviado de volta à IA.
+
 **Commit Checkpoint**  
 - After completing this phase, capture the agreed context and create a commit (for example, `git commit -m "chore(plan): complete phase 1 discovery"`).
 
@@ -135,6 +137,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 1. Implement logging hooks post-tool execution, ensuring capture of AI-received data without altering function behavior. Pair with Refactoring Specialist for clean integration.  
 2. Reference Backend Specialist playbook for server-side patterns; iterate based on early reviews from Code Reviewer. Maintain alignment with Security Notes for data handling.  
 
+**Status 2025-11-29:** Implementado `logToolPayload` (`server/tool-logger.ts`) e integrado no fluxo de `searchFaqs` e `searchCatalog` em `server/routes.ts`, com parsing resiliente dos argumentos e fallback seguro para queries. Logs agora exibem argumentos resolvidos, contagem de resultados e preview do contexto enviado para a IA sem afetar o comportamento das ferramentas.
+
 **Commit Checkpoint**  
 - Summarize progress, update cross-links, and create a commit documenting the outcomes of this phase (for example, `git commit -m "chore(plan): complete phase 2 implementation"`).
 
@@ -146,6 +150,8 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 **Steps**  
 1. Write and run unit/integration tests simulating tool calls, asserting logs contain expected returns. Use Testing Strategy doc for coverage.  
 2. Update relevant docs (e.g., Architecture Notes) with logging details; hand off to maintainers with verification evidence. Security Auditor to sign off on log safety.  
+
+**Status 2025-11-29:** Criados testes unitários (`tests/tool-logger.test.ts`) executados com `npx tsx tests/tool-logger.test.ts`, verificando truncamento e metadados dos logs. Documentação atualizada em [Data Flow & Integrations](../docs/data-flow.md) e [Security Notes](../docs/security.md) descrevendo o novo comportamento e limites de preview.
 
 **Commit Checkpoint**  
 - Record the validation evidence and create a commit signalling the handoff completion (for example, `git commit -m "chore(plan): complete phase 3 validation"`).
@@ -193,6 +199,11 @@ When to initiate rollback:
 ## Evidence & Follow-up
 - Artifacts to collect: PR links for code changes, sample log outputs from tests, updated doc sections, test run reports.
 - Follow-up actions: Monitor production logs post-deployment for 1 week (Owner: Devops Specialist); review log usefulness in next sprint retrospective (Owner: Backend Specialist).
+
+**Evidence 2025-11-29:**
+- Tool payload logger implementado em `server/tool-logger.ts` e utilizado em `server/routes.ts` para ambas as ferramentas.
+- Testes executados: `npx tsx tests/tool-logger.test.ts` (3 casos passando).
+- Documentação ajustada (`../docs/data-flow.md`, `../docs/security.md`) descrevendo o novo rastreamento e limites de preview.
 
 <!-- agent-update:end -->
 

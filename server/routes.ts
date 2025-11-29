@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
+import { logToolPayload } from "./tool-logger";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -55,6 +56,21 @@ function detectForcedTool(message: string): "searchCatalog" | undefined {
 
 function requiresProductClarification(message: string): boolean {
   return genericProductPatterns.some((pattern) => pattern.test(message));
+}
+
+type ToolArguments = Record<string, unknown>;
+
+function parseToolArguments<T extends ToolArguments = ToolArguments>(rawArgs?: string): T {
+  if (!rawArgs) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(rawArgs) as T;
+  } catch (error) {
+    console.warn("[TOOL ARGS] Falha ao converter argumentos da tool:", error);
+    return {} as T;
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -232,10 +248,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             databaseQueried = true;
             console.log("\n🔍 [FERRAMENTA ACIONADA] searchFaqs foi chamada!");
 
-            const args = JSON.parse(toolCall.function.arguments || "{}");
-            console.log("   Buscando por:", args.query);
+            const args = parseToolArguments<{ query?: string; limit?: number }>(toolCall.function.arguments);
+            const requestedQuery = typeof args.query === "string" ? args.query : "";
+            const resolvedQuery = requestedQuery.trim().length > 0 ? requestedQuery : message;
+            const resolvedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
+              ? args.limit
+              : 5;
 
-            const results = await storage.searchFaqs(args.query, args.limit || 5);
+            if (!requestedQuery.trim()) {
+              console.warn("[FERRAMENTA] searchFaqs veio sem query explícita. Usando mensagem original como fallback.");
+            }
+
+            console.log("   Buscando por:", resolvedQuery);
+
+            const results = await storage.searchFaqs(resolvedQuery, resolvedLimit);
             faqsFound = results.length;
 
             if (results.length > 0) {
@@ -249,18 +275,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.log("\n❌ [BANCO DE DADOS] Nenhum resultado encontrado para esta busca");
             }
 
+            const faqPayload = `Resultados da busca para "${resolvedQuery}": ${JSON.stringify(results)}`;
             messages.push({
               role: "system",
-              content: `Resultados da busca para "${args.query}": ${JSON.stringify(results)}`,
+              content: faqPayload,
+            });
+
+            logToolPayload({
+              toolName: "searchFaqs",
+              args: {
+                requestedArgs: args,
+                resolvedQuery,
+                limit: resolvedLimit,
+              },
+              resultCount: results.length,
+              aiPayload: faqPayload,
             });
           } else if (toolCall.function.name === "searchCatalog") {
             databaseQueried = true;
             console.log("\n🔍 [FERRAMENTA ACIONADA] searchCatalog foi chamada!");
 
-            const args = JSON.parse(toolCall.function.arguments || "{}");
-            console.log("   Buscando produtos por:", args.query);
+            const args = parseToolArguments<{ query?: string; limit?: number }>(toolCall.function.arguments);
+            const requestedQuery = typeof args.query === "string" ? args.query : "";
+            const resolvedQuery = requestedQuery.trim().length > 0 ? requestedQuery : message;
+            const resolvedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
+              ? args.limit
+              : 5;
 
-            const results = await storage.searchCatalog(args.query, args.limit || 5);
+            if (!requestedQuery.trim()) {
+              console.warn("[FERRAMENTA] searchCatalog veio sem query explícita. Usando mensagem original como fallback.");
+            }
+
+            console.log("   Buscando produtos por:", resolvedQuery);
+
+            const results = await storage.searchCatalog(resolvedQuery, resolvedLimit);
             catalogItemsFound = results.length;
 
             if (results.length > 0) {
@@ -279,11 +327,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               })
               .join(" || ");
 
+            const catalogPayload = results.length > 0
+              ? `Itens do catálogo para "${resolvedQuery}": ${summary}`
+              : `Nenhum item do catálogo encontrado para "${resolvedQuery}".`;
+
             messages.push({
               role: "system",
-              content: results.length > 0
-                ? `Itens do catálogo para "${args.query}": ${summary}`
-                : `Nenhum item do catálogo encontrado para "${args.query}".`,
+              content: catalogPayload,
+            });
+
+            logToolPayload({
+              toolName: "searchCatalog",
+              args: {
+                requestedArgs: args,
+                resolvedQuery,
+                limit: resolvedLimit,
+              },
+              resultCount: results.length,
+              aiPayload: catalogPayload,
             });
           }
         }

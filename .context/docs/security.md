@@ -14,6 +14,7 @@ Capture the policies and guardrails that keep this project secure and compliant.
 - Rotate `OPENROUTER_API_KEY` and Neon credentials if logs or config files inadvertently leak metadata.
 - FAQ and catalog tables only contain reference content (no PII). If you introduce customer data, document retention windows and sanitization steps here.
 - Avoid dumping full OpenRouter responses into logs—only log counts and tool metadata to limit exposure of customer prompts.
+- Quando precisar auditar as tool calls, use o `logToolPayload` (em `server/routes.ts`) que já normaliza espaços e limita o preview a 800 caracteres para evitar vazamento de prompts extensos ou dados sensíveis.
 
 ## Compliance & Policies
 - No formal certifications are mandated today, but follow GDPR-friendly practices: do not store personally identifiable prompts beyond transient processing, and scrub debug messages before sharing outside the team.

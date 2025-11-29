@@ -23,6 +23,7 @@ Explain how data enters, moves through, and exits the system, including interact
 ## Observability & Failure Modes
 - **Structured logging:** `server/app.ts` records method, path, status, duration, and (trimmed) JSON payloads for `/api` calls. Messages exceeding 80 chars are truncated but still broadcast via SSE.
 - **In-app terminal:** `/api/logs/stream` replays buffered entries so QA can see OpenRouter payloads, tool invocations, and DB counts without SSH.
+- **Tool payload tracing:** `server/routes.ts` usa `logToolPayload` para registrar exatamente qual conteúdo dos resultados das funções (`searchFaqs`, `searchCatalog`) é devolvido para a IA, incluindo argumentos resolvidos e prévias truncadas do contexto enviado.
 - **Error surfacing:** Any exception in `/api/chat` emits a 500 with `details` plus a console stack trace. There is no retry/backoff yet; operators should monitor for repeated OpenRouter or Neon failures via the SSE feed.
 - **Safeguards:** Catalog queries force tool usage when keywords match, reducing the chance of an LLM hallucination. Future improvements could auto-call `searchFaqs` if the model refuses.
 
