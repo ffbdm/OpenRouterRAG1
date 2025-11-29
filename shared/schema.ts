@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, doublePrecision, pgEnum, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, doublePrecision, pgEnum, integer, index, vector } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const catalogEmbeddingDimensions = 1536;
 
 export const catalogItemStatusValues = ["ativo", "arquivado"] as const;
 export type CatalogItemStatus = (typeof catalogItemStatusValues)[number];
@@ -105,6 +107,26 @@ export const insertCatalogFileSchema = createInsertSchema(catalogFiles, {
 
 export type InsertCatalogFile = z.infer<typeof insertCatalogFileSchema>;
 export type CatalogFile = typeof catalogFiles.$inferSelect;
+
+export const catalogItemEmbeddingSources = ["item", "file", "note"] as const;
+export type CatalogItemEmbeddingSource = (typeof catalogItemEmbeddingSources)[number];
+export const catalogItemEmbeddingSourceEnum = pgEnum("catalog_item_embedding_source", catalogItemEmbeddingSources);
+
+export const catalogItemEmbeddings = pgTable("catalog_item_embeddings", {
+  id: serial("id").primaryKey(),
+  catalogItemId: integer("catalog_item_id")
+    .notNull()
+    .references(() => catalogItems.id, { onDelete: "cascade" }),
+  source: catalogItemEmbeddingSourceEnum("source").notNull().default("item"),
+  content: text("content").notNull(),
+  embedding: vector("embedding", { dimensions: catalogEmbeddingDimensions }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  catalogItemIndex: index("catalog_item_embeddings_item_id_idx").on(table.catalogItemId),
+}));
+
+export type CatalogItemEmbedding = typeof catalogItemEmbeddings.$inferSelect;
+export type InsertCatalogItemEmbedding = typeof catalogItemEmbeddings.$inferInsert;
 
 export const catalogItemsSeed: InsertCatalogItem[] = [
   {

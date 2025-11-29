@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { z } from "zod";
 import { storage } from "./storage";
+import { type CatalogHybridHit, type CatalogHybridSearchResult } from "./catalog-hybrid";
 import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
 import { registerCatalogRoutes } from "./catalog-routes";
@@ -48,11 +50,50 @@ const genericProductPatterns = [
   /produtos\s+dispon[ií]veis/i,
 ];
 
+const agronomyKeywords = [
+  "agronomia",
+  "agro",
+  "fazenda",
+  "campo",
+  "fertilizante",
+  "fertilizantes",
+  "fertilização",
+  "foliar",
+  "foliares",
+  "defensivo",
+  "defensivos",
+  "soja",
+  "milho",
+  "sementes",
+  "cultivar",
+  "nutrição",
+  "nutricao",
+  "herbicida",
+  "fungicida",
+  "inseticida",
+  "adubo",
+  "adjuvante",
+];
+
 function detectForcedTool(message: string): "searchCatalog" | undefined {
   const normalized = message.toLowerCase();
   const shouldForceCatalog = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
 
   return shouldForceCatalog ? "searchCatalog" : undefined;
+}
+
+function detectAgronomyIntent(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const hasCatalogHint = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
+  const hasAgronomyHint = agronomyKeywords.some((keyword) => normalized.includes(keyword));
+  const looksLikeSku = /sku[-\s:]?\d{4,}/i.test(normalized) || /#\d{6,}/.test(normalized);
+
+  return (hasCatalogHint || hasAgronomyHint) && !looksLikeSku;
+}
+
+function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
+  if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
+  return Math.min(Math.max(1, Math.floor(rawLimit)), max);
 }
 
 function requiresProductClarification(message: string): boolean {
@@ -71,6 +112,38 @@ function parseToolArguments<T extends ToolArguments = ToolArguments>(rawArgs?: s
   } catch (error) {
     console.warn("[TOOL ARGS] Falha ao converter argumentos da tool:", error);
     return {} as T;
+  }
+}
+
+function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
+  const tagList = hit.item.tags.join(", ") || "sem tags";
+  const price = Number.isFinite(hit.item.price) ? `R$${hit.item.price.toFixed(2)}` : "preço indisponível";
+  const score = typeof hit.score === "number" ? hit.score.toFixed(4) : "lexical";
+  const sourceLabel = hit.source === "lexical" ? "lexical" : `vetorial:${hit.source}`;
+  const snippet = hit.snippet || hit.item.description;
+  const prefix = typeof index === "number" ? `${index + 1}. ` : "";
+
+  return `${prefix}${hit.item.name} | ${hit.item.category} | ${hit.item.manufacturer} | ${price} | Tags: ${tagList} | Fonte: ${sourceLabel} | Score: ${score} | Snippet: ${snippet}`;
+}
+
+function buildCatalogPayload(query: string, result: CatalogHybridSearchResult): string {
+  if (result.results.length === 0) {
+    return `Nenhum item do catálogo encontrado (busca híbrida) para "${query}".`;
+  }
+
+  const summary = result.results
+    .map((hit, index) => formatCatalogHit(hit, index))
+    .join(" || ");
+
+  return `Busca híbrida (vetorial + lexical) para "${query}": ${summary}`;
+}
+
+function logHybridStats(label: string, result: CatalogHybridSearchResult) {
+  const timing = result.timings;
+  console.log(`[RAG] ${label} :: total=${result.results.length} vetorial=${result.vectorCount} lexical=${result.lexicalCount} embeddingUsed=${result.embeddingUsed}`);
+  console.log(`[RAG] Tempos (ms) → vector=${timing.vectorMs} lexical=${timing.lexicalMs} merge=${timing.mergeMs} total=${timing.totalMs}`);
+  if (result.fallbackReason) {
+    console.log(`[RAG] Fallback: ${result.fallbackReason}`);
   }
 }
 
@@ -99,6 +172,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  app.post("/api/rag/search", async (req, res) => {
+    const schema = z.object({
+      query: z.string().trim().min(1),
+      limit: z.number().int().positive().max(20).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Payload inválido", details: parsed.error.flatten() });
+    }
+
+    const { query, limit } = parsed.data;
+    const resolvedLimit = resolveLimit(limit, 5, 20);
+
+    try {
+      const result = await storage.searchCatalogHybrid(query, resolvedLimit);
+      logHybridStats("/api/rag/search", result);
+
+      return res.json({
+        query,
+        results: result.results,
+        stats: {
+          vectorCount: result.vectorCount,
+          lexicalCount: result.lexicalCount,
+          embeddingUsed: result.embeddingUsed,
+          fallbackReason: result.fallbackReason,
+          timings: result.timings,
+        },
+      });
+    } catch (error) {
+      console.error("[RAG] Erro na busca híbrida:", error);
+      return res.status(500).json({ error: "Erro ao executar busca híbrida" });
+    }
+  });
+
   app.post("/api/chat", async (req, res) => {
     try {
       const { message } = req.body;
@@ -125,16 +233,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      let databaseQueried = false;
+      let faqsFound = 0;
+      let catalogItemsFound = 0;
+      let ragSource: "hybrid" | undefined;
+      let hybridResult: CatalogHybridSearchResult | undefined;
+
       const messages: Message[] = [
         {
           role: "system",
-          content: "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.",
+          content: "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. A tool searchCatalog retorna uma busca híbrida (vetorial + lexical) com score. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.",
         },
         {
           role: "user",
           content: message,
         },
       ];
+
+      if (detectAgronomyIntent(message)) {
+        console.log("[RAG] Intenção agronômica detectada - executando busca híbrida pré-chamada LLM");
+
+        hybridResult = await storage.searchCatalogHybrid(message, resolveLimit(undefined, 5));
+        logHybridStats("Pré-busca /api/chat", hybridResult);
+
+        databaseQueried = true;
+        ragSource = "hybrid";
+
+        if (hybridResult.results.length > 0) {
+          const hybridPayload = buildCatalogPayload(message, hybridResult);
+          messages.push({
+            role: "system",
+            content: hybridPayload,
+          });
+
+          catalogItemsFound = hybridResult.results.length;
+        }
+      }
 
       const tools = [
         {
@@ -163,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "function" as const,
           function: {
             name: "searchCatalog",
-            description: "Consulta itens ativos do catálogo (nome, descrição, categoria, fabricante, preço e tags).",
+            description: "Consulta híbrida (vetorial + lexical) dos itens ativos do catálogo (nome, descrição, categoria, fabricante, preço e tags).",
             parameters: {
               type: "object",
               properties: {
@@ -241,10 +375,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       messages.push({ role: "assistant", content: assistantMessage.content || "" });
 
       // Processar tool calls se existirem
-      let databaseQueried = false;
-      let faqsFound = 0;
-      let catalogItemsFound = 0;
-      
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         for (const toolCall of assistantMessage.tool_calls) {
           if (toolCall.function.name === "searchFaqs") {
@@ -254,9 +384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const args = parseToolArguments<{ query?: string; limit?: number }>(toolCall.function.arguments);
             const requestedQuery = typeof args.query === "string" ? args.query : "";
             const resolvedQuery = requestedQuery.trim().length > 0 ? requestedQuery : message;
-            const resolvedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
-              ? args.limit
-              : 5;
+            const resolvedLimit = resolveLimit(args.limit, 5, 15);
 
             if (!requestedQuery.trim()) {
               console.warn("[FERRAMENTA] searchFaqs veio sem query explícita. Usando mensagem original como fallback.");
@@ -296,14 +424,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           } else if (toolCall.function.name === "searchCatalog") {
             databaseQueried = true;
-            console.log("\n🔍 [FERRAMENTA ACIONADA] searchCatalog foi chamada!");
+            ragSource = "hybrid";
+            console.log("\n🔍 [FERRAMENTA ACIONADA] searchCatalog (híbrido) foi chamada!");
 
             const args = parseToolArguments<{ query?: string; limit?: number }>(toolCall.function.arguments);
             const requestedQuery = typeof args.query === "string" ? args.query : "";
             const resolvedQuery = requestedQuery.trim().length > 0 ? requestedQuery : message;
-            const resolvedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
-              ? args.limit
-              : 5;
+            const resolvedLimit = resolveLimit(args.limit, 5, 15);
 
             if (!requestedQuery.trim()) {
               console.warn("[FERRAMENTA] searchCatalog veio sem query explícita. Usando mensagem original como fallback.");
@@ -311,33 +438,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             console.log("   Buscando produtos por:", resolvedQuery);
 
-            const results = await storage.searchCatalog(resolvedQuery, resolvedLimit);
-            catalogItemsFound = results.length;
+            const hybridSearch = await storage.searchCatalogHybrid(resolvedQuery, resolvedLimit);
+            catalogItemsFound = Math.max(catalogItemsFound, hybridSearch.results.length);
+            hybridResult = hybridSearch;
 
-            if (results.length > 0) {
-              console.log("\n✅ [CATÁLOGO] Itens encontrados! Total:", results.length);
-              results.forEach((item, idx) => {
-                console.log(`     ${idx + 1}. ${item.name} - R$${item.price.toFixed(2)} (${item.category})`);
-              });
-            } else {
-              console.log("\n❌ [CATÁLOGO] Nenhum item encontrado para esta busca");
-            }
+            logHybridStats("Tool searchCatalog", hybridSearch);
 
-            const summary = results
-              .map((item) => {
-                const tagList = item.tags.join(", ") || "sem tags";
-                return `${item.name} | ${item.category} | ${item.manufacturer} | R$${item.price.toFixed(2)} | Tags: ${tagList} | ${item.description}`;
-              })
-              .join(" || ");
+            const catalogPayload = buildCatalogPayload(resolvedQuery, hybridSearch);
 
-            const catalogPayload = results.length > 0
-              ? `Itens do catálogo para "${resolvedQuery}": ${summary}`
-              : `Nenhum item do catálogo encontrado para "${resolvedQuery}".`;
-
-            messages.push({
-              role: "system",
-              content: catalogPayload,
-            });
+            messages.push({ role: "system", content: catalogPayload });
 
             logToolPayload({
               toolName: "searchCatalog",
@@ -345,14 +454,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 requestedArgs: args,
                 resolvedQuery,
                 limit: resolvedLimit,
+                source: "hybrid",
+                timings: hybridSearch.timings,
               },
-              resultCount: results.length,
+              resultCount: hybridSearch.results.length,
               aiPayload: catalogPayload,
             });
           }
         }
       } else {
-        console.log("\n⚠️  [AI] A IA decidiu NÃO consultar o banco de dados para esta pergunta");
+        if (databaseQueried) {
+          console.log("\nℹ️  [RAG] Nenhuma tool extra chamada; usando apenas o contexto pré-busca.");
+        } else {
+          console.log("\n⚠️  [AI] A IA decidiu NÃO consultar o banco de dados para esta pergunta");
+        }
       }
 
       console.log("[OPENROUTER] Segunda chamada - gerando resposta final");
@@ -394,8 +509,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           databaseQueried,
           faqsFound,
           catalogItemsFound,
-          message: databaseQueried 
-            ? `✅ Dados do banco consultados (FAQs: ${faqsFound}, Catálogo: ${catalogItemsFound})`
+          ragSource: databaseQueried ? (ragSource ?? "lexical") : "none",
+          hybrid: hybridResult
+            ? {
+                vectorCount: hybridResult.vectorCount,
+                lexicalCount: hybridResult.lexicalCount,
+                embeddingUsed: hybridResult.embeddingUsed,
+                fallbackReason: hybridResult.fallbackReason,
+                timings: hybridResult.timings,
+              }
+            : undefined,
+          message: databaseQueried
+            ? `✅ Dados do banco consultados (FAQs: ${faqsFound}, Catálogo: ${catalogItemsFound}${ragSource === "hybrid" ? ", híbrido" : ""})`
             : "⚠️ Banco NÃO foi consultado para esta pergunta",
         }
       });

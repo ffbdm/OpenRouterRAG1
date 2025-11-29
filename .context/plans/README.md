@@ -11,11 +11,13 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 6. **Return here** and pick the next plan in the queue. Always leave the README and plan files consistent with the work performed.
 
 ## Plan Queue (process in order)
-1. [Ui Catalog](./ui-catalog.md)
+1. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
 2. [Log Return Ia Form Db](./log-return-ia-form-db.md)
-3. [Rag Context Catalog](./rag-context-catalog.md)
-4. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
-5. [Rag System Hybrid](./rag-system-hybrid.md)
+3. [Parsing Extrair Texto](./parsing-extrair-texto.md)
+4. [Rag Context Catalog](./rag-context-catalog.md)
+5. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
+6. [Rag System Hybrid](./rag-system-hybrid.md)
+7. [Ui Catalog](./ui-catalog.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
