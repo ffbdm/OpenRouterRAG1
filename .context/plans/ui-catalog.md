@@ -120,6 +120,11 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 1. Audit existing catalog data model, API routes, and UI entry points; confirm CRUD requirements and permissions (Owner: Backend Specialist).
 2. Identify UX flows, empty states, and confirmation patterns using glossary/design guidelines; list open questions (Owner: Frontend Specialist).
 
+**Status (executado)**
+- Inventário atual: `shared/schema.ts` já traz `catalog_items` com nome, descrição, categoria, fabricante, preço, status (`ativo`/`arquivado`) e `tags`; `scripts/seedCatalog.ts` popula dados de exemplo (um item arquivado). `server/storage.ts` só expõe `searchCatalog` filtrando status=ativo; não há rotas REST de CRUD nem helpers para create/update/delete. `server/routes.ts` usa `searchCatalog` apenas via tool no chat; `client/src/App.tsx` só tem a rota `/` de chat e não existe entrada ou telas de catálogo (sem lista/formulário/tests).
+- UX e dúvidas: precisamos definir entrada de navegação no shell, lista com estados vazio/erro/carregando, formulários em português para criar/editar (campos acima + status/tags) e confirmação modal para deletar/arquivar. Falta decidir se delete é hard ou arquivar (usar status), se há paginação/ordenar/buscar local, e se existe autenticação/permissão antes de expor CRUD.
+- Próximos passos para fase 2: desenhar contrato REST (list/detail/create/update/delete) e hooks React Query; preparar cópia PT-BR para empty/error/danger actions seguindo `design_guidelines.md`; alinhar com backend se delete será arquivar.
+
 **Commit Checkpoint**
 - After completing this phase, capture the agreed context and create a commit (for example, `git commit -m "chore(plan): complete phase 1 discovery"`).
 
@@ -182,5 +187,6 @@ When to initiate rollback:
 ## Evidence & Follow-up
 - Collect PR link, screenshots/GIFs of CRUD flows, TypeScript/check/test outputs, and any backend API contract notes.
 - Follow-ups: confirm database backup schedule, plan pagination/filters for large catalogs, and schedule post-release monitoring owner.
+- Status agora: Fase 1 (descoberta) registrada; Fases 2-3 aguardam definição do contrato REST de catálogo e decisão sobre arquivar vs. excluir antes de implementar UI/CRUD.
 
 <!-- agent-update:end -->
