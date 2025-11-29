@@ -33,3 +33,7 @@
 - Required env: `DATABASE_URL` (Neon/Postgres), `OPENROUTER_API_KEY`; optional `OPENROUTER_SITE_URL`, `OPENROUTER_SITE_NAME`, `PORT`.
 - Never log secrets; sample `.env` line: `DATABASE_URL=postgres://user:pass@host/db`.
 - Before production deploy, ensure client build exists (`npm run build`) and the server can find `dist/public`.
+## AI Context References
+- Documentation index: `.context/docs/README.md`
+- Agent playbooks: `.context/agents/README.md`
+
