@@ -11,9 +11,9 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 6. **Return here** and pick the next plan in the queue. Always leave the README and plan files consistent with the work performed.
 
 ## Plan Queue (process in order)
-1. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
-2. [Log Return Ia Form Db](./log-return-ia-form-db.md)
-3. [Parsing Extrair Texto](./parsing-extrair-texto.md)
+1. [Ajusteembeddings](./ajusteembeddings.md)
+2. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
+3. [Log Return Ia Form Db](./log-return-ia-form-db.md)
 4. [Rag Context Catalog](./rag-context-catalog.md)
 5. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
 6. [Rag System Hybrid](./rag-system-hybrid.md)
