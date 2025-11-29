@@ -13,6 +13,7 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 ## Plan Queue (process in order)
 1. [Log Return Ia Form Db](./log-return-ia-form-db.md)
 2. [Rag Context Catalog](./rag-context-catalog.md)
+3. [Rag System Hybrid](./rag-system-hybrid.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
