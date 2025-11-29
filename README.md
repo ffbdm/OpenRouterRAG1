@@ -39,7 +39,8 @@ flowchart TD
     G --> L[LLM call #2 (final answer)] --> R[Response to client + debug]
 
     %% Debug/stats
-    P & H5 --> S[Log timings and counts\n(vectorMs, lexicalMs, mergeMs,\nvectorCount, lexicalCount, embeddingUsed)]
+    P --> S[Log timings and counts<br/>vectorMs, lexicalMs, mergeMs,<br/>vectorCount, lexicalCount, embeddingUsed]
+    H5 --> S
     R --> DBG[Debug payload: query flags, counts, fallbackReason, timings]
 ```
 
