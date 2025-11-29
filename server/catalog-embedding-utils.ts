@@ -21,19 +21,6 @@ export function buildCatalogFileEmbeddingContent(file: CatalogFile, item?: Catal
   return normalizeWhitespace(`${header} ${preview}`);
 }
 
-export function chunkContent(content: string, chunkSize = 800): string[] {
-  const normalized = normalizeWhitespace(content);
-  if (!normalized) return [];
-  if (normalized.length <= chunkSize) return [normalized];
-
-  const chunks: string[] = [];
-  for (let i = 0; i < normalized.length; i += chunkSize) {
-    chunks.push(normalized.slice(i, i + chunkSize));
-  }
-
-  return chunks;
-}
-
 export function buildSnippet(content: string, limit = 220): string {
   const normalized = normalizeWhitespace(content);
   if (normalized.length <= limit) return normalized;

@@ -17,7 +17,7 @@ import { db } from "./db";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
-import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, buildSnippet } from "./catalog-embedding-utils";
+import { buildCatalogFileEmbeddingContent, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 
 let faqNormalizationEnsured = false;
@@ -310,7 +310,6 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
-    this.triggerItemEmbedding(created);
     return created;
   }
 
@@ -325,7 +324,9 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     if (updated) {
-      this.triggerItemEmbedding(updated);
+      this.removeItemEmbeddings(updated.id).catch((error) => {
+        console.warn(`[DB] Não foi possível remover embeddings do item ${updated.id}:`, error);
+      });
     }
 
     return updated;
@@ -418,12 +419,15 @@ export class DatabaseStorage implements IStorage {
     return deleted;
   }
 
-  private triggerItemEmbedding(item: CatalogItem | undefined) {
-    if (!item || !embeddingsEnabled()) return;
-
-    this.refreshItemEmbedding(item).catch((error) => {
-      console.warn(`[DB] Não foi possível atualizar embedding do item ${item.id}:`, error);
-    });
+  private async removeItemEmbeddings(itemId: number): Promise<void> {
+    await db
+      .delete(catalogItemEmbeddings)
+      .where(
+        and(
+          eq(catalogItemEmbeddings.catalogItemId, itemId),
+          eq(catalogItemEmbeddings.source, "item"),
+        ),
+      );
   }
 
   private triggerFileEmbedding(file: CatalogFile, item?: CatalogItem) {
@@ -432,32 +436,6 @@ export class DatabaseStorage implements IStorage {
 
     this.refreshFileEmbedding(file, item).catch((error) => {
       console.warn(`[DB] Não foi possível gerar embedding do arquivo ${file.id}:`, error);
-    });
-  }
-
-  private async refreshItemEmbedding(item: CatalogItem): Promise<void> {
-    const content = buildCatalogItemEmbeddingContent(item);
-    if (!content) return;
-
-    const embedding = await generateCatalogEmbedding(content);
-    if (!embedding || embedding.length === 0) return;
-
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(catalogItemEmbeddings)
-        .where(
-          and(
-            eq(catalogItemEmbeddings.catalogItemId, item.id),
-            eq(catalogItemEmbeddings.source, "item"),
-          ),
-        );
-
-      await tx.insert(catalogItemEmbeddings).values({
-        catalogItemId: item.id,
-        source: "item",
-        content,
-        embedding,
-      });
     });
   }
 

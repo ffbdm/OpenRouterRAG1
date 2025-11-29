@@ -165,15 +165,27 @@ test("extrai preview de ODT", async () => {
   assert.ok(preview?.includes("Conteúdo ODT"));
 });
 
-test("respeita truncamento padrão", async () => {
-  const longText = "a".repeat(DEFAULT_MAX_PREVIEW_LENGTH + 500);
+test("não trunca preview por padrão", async () => {
+  const longText = "a".repeat(5000);
   const file = buildMockFile({
     buffer: Buffer.from(longText),
     mimetype: "text/plain",
   });
 
   const preview = await extractTextPreview(file);
-  assert.equal(preview?.length, DEFAULT_MAX_PREVIEW_LENGTH);
+  assert.equal(DEFAULT_MAX_PREVIEW_LENGTH, Number.POSITIVE_INFINITY);
+  assert.equal(preview?.length, longText.length);
+});
+
+test("permite truncar quando limite customizado é informado", async () => {
+  const longText = "b".repeat(3000);
+  const file = buildMockFile({
+    buffer: Buffer.from(longText),
+    mimetype: "text/plain",
+  });
+
+  const preview = await extractTextPreview(file, 1000);
+  assert.equal(preview?.length, 1000);
 });
 
 test("retorna undefined para MIME não suportado", async () => {

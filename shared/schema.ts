@@ -117,7 +117,7 @@ export const catalogItemEmbeddings = pgTable("catalog_item_embeddings", {
   catalogItemId: integer("catalog_item_id")
     .notNull()
     .references(() => catalogItems.id, { onDelete: "cascade" }),
-  source: catalogItemEmbeddingSourceEnum("source").notNull().default("item"),
+  source: catalogItemEmbeddingSourceEnum("source").notNull().default("file"),
   content: text("content").notNull(),
   embedding: vector("embedding", { dimensions: catalogEmbeddingDimensions }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

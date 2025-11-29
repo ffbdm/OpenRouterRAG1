@@ -10,29 +10,11 @@ import {
   type InsertCatalogItemEmbedding,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, chunkContent } from "../server/catalog-embedding-utils";
+import { buildCatalogFileEmbeddingContent } from "../server/catalog-embedding-utils";
 import { embeddingsEnabled, generateCatalogEmbedding, getEmbeddingSettings } from "../server/embeddings";
-
-const FILE_CHUNK_SIZE = Number.isFinite(Number(process.env.EMBEDDING_FILE_CHUNK_SIZE))
-  ? Number(process.env.EMBEDDING_FILE_CHUNK_SIZE)
-  : 800;
 
 async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
   const values: InsertCatalogItemEmbedding[] = [];
-
-  const itemContent = buildCatalogItemEmbeddingContent(item);
-  const itemEmbedding = await generateCatalogEmbedding(itemContent);
-
-  if (itemEmbedding) {
-    values.push({
-      catalogItemId: item.id,
-      source: "item",
-      content: itemContent,
-      embedding: itemEmbedding,
-    });
-  } else {
-    console.warn(`[SEED] Embedding não gerado para item ${item.id} (${item.name}).`);
-  }
 
   const files = await db
     .select()
@@ -43,26 +25,18 @@ async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
     if (!file.textPreview) continue;
 
     const content = buildCatalogFileEmbeddingContent(file, item);
-    const chunks = chunkContent(content, FILE_CHUNK_SIZE);
-
-    for (const chunk of chunks) {
-      const embedding = await generateCatalogEmbedding(chunk);
-      if (!embedding) {
-        console.warn(`[SEED] Falha ao gerar embedding do arquivo ${file.id} (item ${item.id}).`);
-        continue;
-      }
-
-      values.push({
-        catalogItemId: item.id,
-        source: "file",
-        content: chunk,
-        embedding,
-      });
+    const embedding = await generateCatalogEmbedding(content);
+    if (!embedding) {
+      console.warn(`[SEED] Falha ao gerar embedding do arquivo ${file.id} (item ${item.id}).`);
+      continue;
     }
-  }
 
-  if (values.length === 0) {
-    return 0;
+    values.push({
+      catalogItemId: item.id,
+      source: "file",
+      content,
+      embedding,
+    });
   }
 
   await db.transaction(async (tx) => {
@@ -70,7 +44,9 @@ async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
       .delete(catalogItemEmbeddings)
       .where(eq(catalogItemEmbeddings.catalogItemId, item.id));
 
-    await tx.insert(catalogItemEmbeddings).values(values);
+    if (values.length > 0) {
+      await tx.insert(catalogItemEmbeddings).values(values);
+    }
   });
 
   return values.length;

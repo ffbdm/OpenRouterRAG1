@@ -20,8 +20,8 @@ function buildItem(id: number, name: string): CatalogItem {
 
 test("mergeCatalogResults prioriza vetorial e remove duplicados", () => {
   const vectorHits: CatalogHybridHit[] = [
-    { item: buildItem(1, "Item Vetorial"), source: "item", score: 0.1 },
-    { item: buildItem(2, "Outro Vetorial"), source: "item", score: 0.2 },
+    { item: buildItem(1, "Item Vetorial"), source: "file", score: 0.1 },
+    { item: buildItem(2, "Outro Vetorial"), source: "file", score: 0.2 },
   ];
 
   const lexicalHits: CatalogHybridHit[] = [
@@ -36,14 +36,14 @@ test("mergeCatalogResults prioriza vetorial e remove duplicados", () => {
     [1, 2, 3],
     "mantém ordem vetorial e inclui lexical apenas quando não duplicado",
   );
-  assert.equal(merged[1].source, "item");
+  assert.equal(merged[1].source, "file");
   assert.equal(merged[2].source, "lexical");
 });
 
 test("mergeCatalogResults respeita limite quando apenas vetorial existe", () => {
   const vectorHits: CatalogHybridHit[] = [
-    { item: buildItem(1, "Item 1"), source: "item", score: 0.05 },
-    { item: buildItem(2, "Item 2"), source: "item", score: 0.06 },
+    { item: buildItem(1, "Item 1"), source: "file", score: 0.05 },
+    { item: buildItem(2, "Item 2"), source: "file", score: 0.06 },
   ];
 
   const merged = mergeCatalogResults(vectorHits, [], 1);

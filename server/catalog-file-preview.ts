@@ -5,9 +5,9 @@ import { XMLParser } from "fast-xml-parser";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 
-const DEFAULT_MAX_PREVIEW_LENGTH = 2000;
+const DEFAULT_MAX_PREVIEW_LENGTH = Number.POSITIVE_INFINITY;
 
-function sanitizeText(text: string | undefined, maxLength: number): string | undefined {
+function sanitizeText(text: string | undefined, maxLength: number = DEFAULT_MAX_PREVIEW_LENGTH): string | undefined {
   if (!text) return undefined;
 
   const normalized = text
@@ -19,7 +19,11 @@ function sanitizeText(text: string | undefined, maxLength: number): string | und
 
   if (!normalized) return undefined;
 
-  return normalized.slice(0, maxLength);
+  if (Number.isFinite(maxLength) && maxLength > 0) {
+    return normalized.slice(0, maxLength);
+  }
+
+  return normalized;
 }
 
 function decodeRtf(buffer: Buffer): string {
