@@ -353,6 +353,11 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
+    // Auto-generate item embedding
+    this.generateItemEmbedding(created).catch((error) => {
+      console.warn(`[DB] Falha ao gerar embedding do novo item ${created.id}:`, error);
+    });
+
     return created;
   }
 
@@ -380,6 +385,13 @@ export class DatabaseStorage implements IStorage {
       }
     });
 
+    // Auto-generate embeddings for new items (async, non-blocking)
+    for (const item of created) {
+      this.generateItemEmbedding(item).catch((error) => {
+        console.warn(`[DB] Falha ao gerar embedding bulk item ${item.id}:`, error);
+      });
+    }
+
     return created;
   }
 
@@ -394,8 +406,12 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     if (updated) {
-      this.removeItemEmbeddings(updated.id).catch((error) => {
-        console.warn(`[DB] Não foi possível remover embeddings do item ${updated.id}:`, error);
+      // Delete old embeddings (files + item)
+      await this.removeItemEmbeddings(updated.id);
+
+      // Auto-regenerate item embedding
+      this.generateItemEmbedding(updated).catch((error) => {
+        console.warn(`[DB] Falha ao regenerar embedding item ${updated.id}:`, error);
       });
     }
 
@@ -575,6 +591,34 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(catalogItemEmbeddings).values({
         catalogItemId: file.catalogItemId,
         source: "file",
+        content,
+        embedding,
+      });
+    });
+  }
+
+  private async generateItemEmbedding(item: CatalogItem): Promise<void> {
+    if (!embeddingsEnabled()) return;
+
+    const content = buildCatalogItemEmbeddingContent(item);
+    const embedding = await generateCatalogEmbedding(content);
+    if (!embedding || embedding.length === 0) return;
+
+    await db.transaction(async (tx) => {
+      // Delete old item embeddings
+      await tx
+        .delete(catalogItemEmbeddings)
+        .where(
+          and(
+            eq(catalogItemEmbeddings.catalogItemId, item.id),
+            eq(catalogItemEmbeddings.source, "item"),
+          ),
+        );
+
+      // Insert new
+      await tx.insert(catalogItemEmbeddings).values({
+        catalogItemId: item.id,
+        source: "item",
         content,
         embedding,
       });
