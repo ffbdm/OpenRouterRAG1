@@ -6,44 +6,53 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 
 ```mermaid
 flowchart TD
-    U[User message] --> Chat[POST /api/chat];
+    U[User message] --> Chat[POST /api/chat]
 
-    Chat -->|generic product list| Clarify[Ask category/price; ends here];
-    Chat -->|otherwise| Build[Prime system + user messages];
+    Chat -->|generic product list| Clarify[Ask category/price<br/>stop flow]
+    Chat -->|otherwise| Build[Prime system + user messages]
 
-    Build --> Agronomy{detectAgronomyIntent?};
-    Agronomy -->|yes| PreHybrid[Pre hybrid catalog search (vector + lexical); databaseQueried=true];
-    PreHybrid --> PreCtx[Attach hybrid summary as system message];
-    PreHybrid --> LogPre[logHybridStats];
-    Agronomy -->|no| Force;
+    %% Nó de decisão de intenção agronômica
+    Agronomy{detectAgronomyIntent}
+    Build --> Agronomy
 
-    Build --> Force{detectForcedTool?};
-    PreCtx --> Force;
+    %% Nó de pré-busca híbrida
+    PreHybrid{"Pre hybrid catalog search (vector + lexical)", databaseQueried: true}
+    Agronomy -->|yes| PreHybrid
 
-    Force -->|catalog intent| FirstLLM[OpenRouter call #1\nTools: searchFaqs/searchCatalog\n tool_choice=searchCatalog];
-    Force -->|none| FirstLLM;
+    PreHybrid --> PreCtx[Attach hybrid summary<br/>as system message]
+    PreHybrid --> LogPre[logHybridStats]
 
-    FirstLLM --> Tools{Tool calls?};
-    Tools -->|no| DBCheck{databaseQueried?};
-    DBCheck -->|no| Direct[Direct answer; llmCalls=1; ragSource=none];
-    DBCheck -->|yes| SecondLLM;
-    Direct --> Resp[Response + debug];
+    Agronomy -->|no| Force{detectForcedTool?}
 
-    Tools -->|yes| ToolFanout[Run requested tools];
-    ToolFanout --> FAQ[searchFaqs -> DB FAQs];
-    ToolFanout --> Catalog[searchCatalog -> hybrid];
-    FAQ --> FAQCtx[Add FAQ payload to messages];
-    Catalog --> CatalogCtx[Add catalog payload; ragSource=hybrid];
-    FAQ --> ToolLog[logToolPayload + counts];
-    Catalog --> ToolLog;
+    Build --> Force
+    PreCtx --> Force
 
-    FAQCtx --> SecondLLM;
-    CatalogCtx --> SecondLLM;
-    PreCtx --> SecondLLM;
-    SecondLLM[OpenRouter call #2 with collected contexts] --> Resp;
+    Force -->|catalog intent| FirstLLM[OpenRouter call #1<br/>tools: searchFaqs / searchCatalog<br/>tool_choice = searchCatalog]
+    Force -->|none| FirstLLM
 
-    ToolLog --> SSE[/api/logs/stream -> UI];
-    LogPre --> SSE;
+    FirstLLM --> Tools{Tool calls?}
+
+    Tools -->|no| DBCheck{databaseQueried?}
+    DBCheck -->|no| Direct[Direct answer<br/>llmCalls = 1<br/>ragSource = none]
+    DBCheck -->|yes| SecondLLM[OpenRouter call #2<br/>with collected contexts]
+    Direct --> Resp[Response + debug]
+
+    Tools -->|yes| ToolFanout[Run requested tools]
+    ToolFanout --> FAQ[searchFaqs -> FAQ DB]
+    ToolFanout --> Catalog[searchCatalog -> hybrid]
+
+    FAQ --> FAQCtx[Add FAQ payload to messages]
+    Catalog --> CatalogCtx[Add catalog payload<br/>ragSource = hybrid]
+
+    FAQ --> ToolLog[logToolPayload + counts]
+    Catalog --> ToolLog
+
+    PreCtx --> SecondLLM
+    FAQCtx --> SecondLLM
+    CatalogCtx --> SecondLLM
+    SecondLLM --> Resp    
+    ToolLog --> SSE["/api/logs/stream" -> UI]
+    LogPre --> SSE
 ```
 
 - `requiresProductClarification` encerra o fluxo antes de qualquer chamada de LLM/DB quando o pedido é apenas “liste produtos”.
