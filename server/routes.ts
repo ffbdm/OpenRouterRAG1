@@ -238,6 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let catalogItemsFound = 0;
       let ragSource: "hybrid" | undefined;
       let hybridResult: CatalogHybridSearchResult | undefined;
+      let llmCalls = 1;
 
       const messages: Message[] = [
         {
@@ -470,6 +471,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (!databaseQueried) {
+        console.log("[RAG] Pulando segunda chamada - IA respondeu sem consultar banco");
+
+        const trimmedFirstContent = (assistantMessage.content || "").trim();
+        const fallbackAnswer = "Não encontrei informações adicionais no momento, mas posso procurar novamente se você quiser fornecer mais detalhes.";
+        const singleHopResponse = trimmedFirstContent.length > 0 ? assistantMessage.content : fallbackAnswer;
+
+        return res.json({
+          response: singleHopResponse,
+          debug: {
+            databaseQueried,
+            faqsFound,
+            catalogItemsFound,
+            ragSource: "none",
+            hybrid: undefined,
+            llmCalls,
+            message: "⚠️ Banco NÃO foi consultado para esta pergunta (fluxo de uma chamada)",
+          },
+        });
+      }
+
+      llmCalls = 2;
+
       console.log("[OPENROUTER] Segunda chamada - gerando resposta final");
 
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -519,6 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 timings: hybridResult.timings,
               }
             : undefined,
+          llmCalls,
           message: databaseQueried
             ? `✅ Dados do banco consultados (FAQs: ${faqsFound}, Catálogo: ${catalogItemsFound}${ragSource === "hybrid" ? ", híbrido" : ""})`
             : "⚠️ Banco NÃO foi consultado para esta pergunta",
