@@ -6,6 +6,7 @@ import { type CatalogHybridHit, type CatalogHybridSearchResult } from "./catalog
 import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
 import { registerCatalogRoutes } from "./catalog-routes";
+import { registerInstructionRoutes } from "./instruction-routes";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -74,6 +75,9 @@ const agronomyKeywords = [
   "adubo",
   "adjuvante",
 ];
+
+const CHAT_SYSTEM_SLUG = "chat-system";
+const DEFAULT_CHAT_SYSTEM_PROMPT = "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. A tool searchCatalog retorna uma busca híbrida (vetorial + lexical) com score. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.";
 
 function detectForcedTool(message: string): "searchCatalog" | undefined {
   const normalized = message.toLowerCase();
@@ -149,6 +153,7 @@ function logHybridStats(label: string, result: CatalogHybridSearchResult) {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   registerCatalogRoutes(app);
+  registerInstructionRoutes(app);
 
   app.get("/api/logs/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -233,6 +238,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      const chatInstruction = await storage.getInstructionBySlug(CHAT_SYSTEM_SLUG);
+      const chatSystemContent = chatInstruction?.content?.trim().length ? chatInstruction.content : DEFAULT_CHAT_SYSTEM_PROMPT;
+
+      if (!chatInstruction) {
+        console.warn(`[INSTRUCTIONS] ${CHAT_SYSTEM_SLUG} não encontrado. Usando prompt padrão.`);
+      }
+
       let databaseQueried = false;
       let faqsFound = 0;
       let catalogItemsFound = 0;
@@ -243,7 +255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messages: Message[] = [
         {
           role: "system",
-          content: "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. A tool searchCatalog retorna uma busca híbrida (vetorial + lexical) com score. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.",
+          content: chatSystemContent,
         },
         {
           role: "user",

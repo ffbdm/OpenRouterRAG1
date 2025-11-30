@@ -57,3 +57,10 @@ flowchart TD
 
 - Híbrido direto: `curl -X POST http://localhost:3000/api/rag/search -H "Content-Type: application/json" -d '{"query":"adubo foliar","limit":5}'`
 - Chat end-to-end: perguntar sobre um produto; o retorno inclui `debug` com flags do RAG.
+
+## Painel de instruções editável
+
+- O backend expõe `GET /api/instructions` (filtro opcional `?scope=chat,catalog`) e `PUT /api/instructions/:slug` para atualizar o conteúdo versionado na tabela `system_instructions`.
+- A SPA mostra o painel diretamente nas páginas de Chat e Catálogo, reutilizando o componente `InstructionsPanel` para listar, editar e salvar instruções com React Query.
+- O prompt do chat (`chat-system`) agora é lido do banco antes de cada requisição; se o registro não existir, o servidor aplica o fallback codificado.
+- Após atualizar `shared/schema.ts`, rode `npm run db:push` para criar a nova tabela e inserir os seeds (`chat-system`, `catalog-guidelines`, `global-operating-principles`).

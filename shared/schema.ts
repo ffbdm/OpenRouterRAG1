@@ -128,6 +128,40 @@ export const catalogItemEmbeddings = pgTable("catalog_item_embeddings", {
 export type CatalogItemEmbedding = typeof catalogItemEmbeddings.$inferSelect;
 export type InsertCatalogItemEmbedding = typeof catalogItemEmbeddings.$inferInsert;
 
+export const instructionScopeValues = ["global", "chat", "catalog"] as const;
+export type InstructionScope = (typeof instructionScopeValues)[number];
+export const instructionScopeEnum = pgEnum("instruction_scope", instructionScopeValues);
+export const instructionScopeSchema = z.enum(instructionScopeValues);
+
+export const systemInstructions = pgTable("system_instructions", {
+  id: serial("id").primaryKey(),
+  slug: varchar("slug", { length: 120 }).notNull().unique(),
+  scope: instructionScopeEnum("scope").notNull().default("global"),
+  title: text("title").notNull(),
+  description: text("description"),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertSystemInstructionSchema = createInsertSchema(systemInstructions, {
+  slug: z.string().trim().min(2).max(120),
+  title: z.string().trim().min(2),
+  description: z.string().trim().optional(),
+  content: z.string().trim().min(10),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateSystemInstructionSchema = z.object({
+  content: z.string().trim().min(10, "Conteúdo deve ter ao menos 10 caracteres"),
+});
+
+export type SystemInstruction = typeof systemInstructions.$inferSelect;
+export type InsertSystemInstruction = z.infer<typeof insertSystemInstructionSchema>;
+
 export const catalogItemsSeed: InsertCatalogItem[] = [
   {
     name: "Semente Premium Soja 64",

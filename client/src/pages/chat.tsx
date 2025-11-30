@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import LogTerminal from "@/components/LogTerminal";
+import { InstructionsPanel } from "@/components/InstructionsPanel";
 import { Send, Bot, User } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -183,8 +184,13 @@ export default function ChatPage() {
           </form>
         </section>
 
-        <div className="sticky top-6 self-start w-full">
+        <div className="sticky top-6 self-start w-full space-y-4">
           <LogTerminal />
+          <InstructionsPanel
+            scopes={["chat"]}
+            title="Instruções do chat"
+            description="Controle o prompt de sistema e diretrizes aplicadas às conversas."
+          />
         </div>
       </div>
     </div>

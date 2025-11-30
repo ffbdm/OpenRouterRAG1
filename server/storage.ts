@@ -4,6 +4,7 @@ import {
   catalogItems,
   catalogFiles,
   catalogItemEmbeddings,
+  systemInstructions,
   type User,
   type InsertUser,
   type Faq,
@@ -12,9 +13,11 @@ import {
   type CatalogItemInput,
   type CatalogFile,
   type InsertCatalogFile,
+  type SystemInstruction,
+  type InstructionScope,
 } from "@shared/schema";
 import { db } from "./db";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
 import { buildCatalogFileEmbeddingContent, buildSnippet } from "./catalog-embedding-utils";
@@ -104,6 +107,9 @@ export interface IStorage {
   createCatalogFile(file: InsertCatalogFile): Promise<CatalogFile>;
   getCatalogFileById(id: number): Promise<CatalogFile | undefined>;
   deleteCatalogFile(id: number): Promise<CatalogFile | undefined>;
+  listInstructions(params?: { scopes?: InstructionScope[] }): Promise<SystemInstruction[]>;
+  getInstructionBySlug(slug: string): Promise<SystemInstruction | undefined>;
+  updateInstructionContent(slug: string, content: string): Promise<SystemInstruction | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -417,6 +423,41 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return deleted;
+  }
+
+  async listInstructions(params?: { scopes?: InstructionScope[] }): Promise<SystemInstruction[]> {
+    const scopes = params?.scopes?.filter(Boolean) ?? [];
+
+    const baseQuery = db
+      .select()
+      .from(systemInstructions)
+      .orderBy(asc(systemInstructions.scope), asc(systemInstructions.title));
+
+    if (scopes.length === 0) {
+      return baseQuery;
+    }
+
+    return baseQuery.where(inArray(systemInstructions.scope, scopes));
+  }
+
+  async getInstructionBySlug(slug: string): Promise<SystemInstruction | undefined> {
+    const [instruction] = await db
+      .select()
+      .from(systemInstructions)
+      .where(eq(systemInstructions.slug, slug))
+      .limit(1);
+
+    return instruction;
+  }
+
+  async updateInstructionContent(slug: string, content: string): Promise<SystemInstruction | undefined> {
+    const [updated] = await db
+      .update(systemInstructions)
+      .set({ content, updatedAt: sql`now()` })
+      .where(eq(systemInstructions.slug, slug))
+      .returning();
+
+    return updated;
   }
 
   private async removeItemEmbeddings(itemId: number): Promise<void> {

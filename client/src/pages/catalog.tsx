@@ -48,6 +48,7 @@ import {
 } from "@/lib/catalog";
 import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
+import { InstructionsPanel } from "@/components/InstructionsPanel";
 import { AlertCircle, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Tag, Trash2, UploadCloud } from "lucide-react";
 
 const catalogFormSchema = z.object({
@@ -719,6 +720,12 @@ export default function CatalogPage() {
           </Button>
         </div>
       </div>
+
+      <InstructionsPanel
+        scopes={["catalog"]}
+        title="Instruções do catálogo"
+        description="Revise o checklist de preenchimento antes de criar ou editar itens."
+      />
 
       <Card className="space-y-4 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

@@ -113,6 +113,12 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 1. Inventariar instruções existentes em `shared/schema.ts` e `server/catalog-hybrid.ts`, validando se o schema atende aos requisitos — Owner: Backend Specialist.
 2. Mapear requisitos de UX/copy com Design e registrar perguntas abertas (escopo, permissões) em `plans/README.md` — Owner: Frontend Specialist.
 
+**Discovery Notes (30/11/2025)**
+- Não existe tabela ou API de instruções no schema atual; criaremos `system_instructions` (slug único, scope enum `global|chat|catalog`, título descritivo, conteúdo em texto longo, timestamps) e popular com valores default (prompt do chat e briefing do catálogo) durante a migração.
+- O backend exporá `GET /api/instructions` (filtro opcional por `scope`) e `PUT /api/instructions/:slug`, além de consumir `chat-system` direto do banco no fluxo do `/api/chat`.
+- A UI terá um `InstructionSheet` reutilizável com botão em Chat e Catálogo, exibindo instruções de `global` + escopo atual, edição inline com React Query + toasts e preview somente leitura para quem não editar.
+- Precisamos registrar decisão de permissões (por enquanto todos os usuários da SPA) no README até que RBAC esteja disponível.
+
 **Commit Checkpoint**
 - After completing this phase, capture the agreed context and create a commit (for example, `git commit -m "chore(plan): complete phase 1 discovery"`).
 
@@ -120,6 +126,12 @@ Identify potential blockers, dependencies, and mitigation strategies before begi
 **Steps**
 1. Implementar listagem/edição na SPA usando componentes de `client/src/components/ui`, além de expor rotas Express e logs; prever pairings diários entre Feature Developer e Backend Specialist.
 2. Conferir `../docs/architecture.md` e seguir o playbook do Feature Developer para dividir PRs (UI, API, persistência) mantendo revisões assíncronas a cada entrega.
+
+**Implementation Notes (30/11/2025)**
+- Criadas as rotas `GET /api/instructions`, `GET /api/instructions/:slug` e `PUT /api/instructions/:slug`, todas apoiadas pelo novo módulo `server/instruction-routes.ts` e helpers de escopo.
+- O prompt do chat (`chat-system`) deixou de ser hardcoded e passou a ser carregado do banco (com fallback logado se estiver ausente).
+- Novos componentes reutilizáveis (`InstructionsPanel`) foram encaixados no Chat e no Catálogo, reaproveitando `Accordion`, toasts e React Query para persistir edição inline.
+- Adicionada a migração `0002_system_instructions.sql` com seeds (`chat-system`, `catalog-guidelines`, `global-operating-principles`) e documentação atualizada em README + `project-overview.md` para orientar `npm run db:push`.
 
 **Commit Checkpoint**
 - Summarize progress, update cross-links, and create a commit documenting the outcomes of this phase (for example, `git commit -m "chore(plan): complete phase 2 implementation"`).

@@ -8,6 +8,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - Root path: `/Users/fabiofernandes/WorkSpace/OpenRouterRAG`
 - Primary code: TypeScript/TSX (React client + Express server), JSON config, Markdown docs
 - Persistence: Neon/Postgres via Drizzle ORM; catalog + FAQ tables live in `shared/schema.ts`
+- Instructions: tabela `system_instructions` (scopes global/chat/catalog) alimenta o painel da UI e o prompt dinâmico consumido por `GET/PUT /api/instructions`
 - AI provider: OpenRouter (`x-ai/grok-4.1-fast:free`) called twice per user request (tool invocation + final answer)
 - Deployment: Vercel-style build (`npm run build`) serving `dist/public` with bundled server entry in `dist/index.js`
 
@@ -15,6 +16,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - `AGENTS.md` — Repository-wide engineering guidelines (structure, commands, env vars) shared with humans and AI agents.
 - `attached_assets/` — Reference copy decks and prompt transcripts used to prime the UI copy or future training runs.
 - `client/` — Vite + React SPA (pages, shadcn/ui components, hooks, query client, Tailwind styles, HTML template).
+- `client/src/components/InstructionsPanel.tsx` — painel reutilizável que lista/edita instruções por escopo diretamente no Chat e no Catálogo.
 - `components.json` — shadcn/ui generator settings (aliases, tailwind path, preferred style variant).
 - `design_guidelines.md` — Product design spec describing typography, layout, and UX constraints for the chat experience.
 - `drizzle.config.ts` — Drizzle Kit configuration that maps `shared/schema.ts` to migrations and enforces `DATABASE_URL` presence.
@@ -35,7 +37,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - **Languages & runtimes:** TypeScript across client/server, React 18 SPA, Node.js 20+ on the server, Postgres (Neon) for persistence.
 - **AI layer:** OpenRouter's `x-ai/grok-4.1-fast:free` model with function calling to search FAQs or catalog entries.
 - **Build & tooling:** Vite for the client, esbuild for the production server bundle, tsx for local TypeScript execution, Tailwind for styling.
-- **Data modeling:** Drizzle ORM + Zod schemas in `shared/schema.ts`, surfaced to both Express handlers and scripts.
+- **Data modeling:** Drizzle ORM + Zod schemas em `shared/schema.ts`, agora incluindo `system_instructions` que alimenta o prompt do chat e o painel editável.
 
 ## Core Framework Stack
 - **Backend:** Express monolith (`server/index-dev.ts`/`index-prod.ts`) with custom middleware for logging, SSE log streaming, and OpenRouter orchestration.
