@@ -221,6 +221,11 @@ export class DatabaseStorage implements IStorage {
         snippet: buildSnippet(row.content),
       }));
 
+      if (results.length > 0) {
+        const scores = results.map((r) => r.score?.toFixed(4) ?? 'N/A').join(', ');
+        console.log(`[VECTOR] Scores filtrados (${results.length}): ${scores}`);
+      }
+
       return { results };
     } catch (error) {
       console.warn("[DB] Falha na busca vetorial do catálogo:", error);
