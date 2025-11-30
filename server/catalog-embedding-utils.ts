@@ -1,5 +1,7 @@
 import type { CatalogFile, CatalogItem } from "@shared/schema";
 
+const SNIPPET_LIMIT = resolveSnippetLimit(process.env.CATALOG_SNIPPET_LIMIT, 220);
+
 function normalizeWhitespace(input: string): string {
   return input.replace(/\s+/g, " ").trim();
 }
@@ -21,8 +23,17 @@ export function buildCatalogFileEmbeddingContent(file: CatalogFile, item?: Catal
   return normalizeWhitespace(`${header} ${preview}`);
 }
 
-export function buildSnippet(content: string, limit = 220): string {
+export function buildSnippet(content: string, limit = SNIPPET_LIMIT): string {
   const normalized = normalizeWhitespace(content);
   if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, limit - 1)}…`;
+}
+
+function resolveSnippetLimit(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.min(parsed, 4000);
+  }
+  return fallback;
 }
