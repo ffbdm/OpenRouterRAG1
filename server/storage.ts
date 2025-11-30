@@ -241,7 +241,7 @@ export class DatabaseStorage implements IStorage {
     const lexicalResults = await this.searchCatalog(query, finalLimit);
     const lexicalMs = Date.now() - lexicalStartedAt;
 
-    const lexicalHits = mapLexicalResults(lexicalResults);
+    const lexicalHits = mapLexicalResults(lexicalResults, query);
 
     let vectorResults: CatalogHybridHit[] = [];
     let vectorMs = 0;

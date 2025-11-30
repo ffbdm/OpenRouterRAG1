@@ -123,8 +123,15 @@ function parseToolArguments<T extends ToolArguments = ToolArguments>(rawArgs?: s
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
   const price = Number.isFinite(hit.item.price) ? `R$${hit.item.price.toFixed(2)}` : "preço indisponível";
-  const score = typeof hit.score === "number" ? hit.score.toFixed(4) : "lexical";
-  const sourceLabel = hit.source === "lexical" ? "lexical" : `vetorial:${hit.source}`;
+  const vectorScore = typeof hit.score === "number" ? `vec:${hit.score.toFixed(4)}` : undefined;
+  const lexicalScore = typeof hit.lexicalScore === "number" ? `lex:${hit.lexicalScore.toFixed(2)}` : undefined;
+  const score = vectorScore || lexicalScore ? [vectorScore, lexicalScore].filter(Boolean).join(" ") : "lexical";
+  const hasLexicalContext = typeof hit.lexicalScore === "number";
+  const sourceLabel = hit.source === "lexical"
+    ? "lexical"
+    : hasLexicalContext
+      ? `vetorial+lexical:${hit.source}`
+      : `vetorial:${hit.source}`;
   const snippet = hit.snippet || hit.item.description;
   const prefix = typeof index === "number" ? `${index + 1}. ` : "";
 
