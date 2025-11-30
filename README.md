@@ -5,35 +5,53 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 ## System flow
 
 ```mermaid
-graph TD;
-    U[User] --> C[POST /api/chat];
+flowchart TD
+    U[User message] --> Chat[POST /api/chat];
 
-    C -->|generic catalog question| Clarify[Ask category/price range; skip DB];
-    C -->|agro/catalog intent| PreHybrid[Pre hybrid search (vector + lexical)];
-    C -->|other| FirstLLM[LLM call #1<br/>Tools=searchFaqs/searchCatalog];
+    Chat -->|generic product list| Clarify[Ask category/price; ends here];
+    Chat -->|otherwise| Build[Prime system + user messages];
 
-    PreHybrid --> PreCtx[Hybrid context as system message];
-    PreCtx --> FirstLLM;
+    Build --> Agronomy{detectAgronomyIntent?};
+    Agronomy -->|yes| PreHybrid[Pre hybrid catalog search (vector + lexical); databaseQueried=true];
+    PreHybrid --> PreCtx[Attach hybrid summary as system message];
+    PreHybrid --> LogPre[logHybridStats];
+    Agronomy -->|no| Force;
 
-    FirstLLM -->|no tool/no DB| Direct[Direct answer<br/>llmCalls=1];
+    Build --> Force{detectForcedTool?};
+    PreCtx --> Force;
+
+    Force -->|catalog intent| FirstLLM[OpenRouter call #1\nTools: searchFaqs/searchCatalog\n tool_choice=searchCatalog];
+    Force -->|none| FirstLLM;
+
+    FirstLLM --> Tools{Tool calls?};
+    Tools -->|no| DBCheck{databaseQueried?};
+    DBCheck -->|no| Direct[Direct answer; llmCalls=1; ragSource=none];
+    DBCheck -->|yes| SecondLLM;
     Direct --> Resp[Response + debug];
 
-    FirstLLM -->|tool call| Tools[searchFaqs/searchCatalog + Drizzle];
-    Tools --> Ctx[Attach FAQ/Catalog context];
-    Ctx --> FinalLLM[LLM call #2];
-    FinalLLM --> Resp;
+    Tools -->|yes| ToolFanout[Run requested tools];
+    ToolFanout --> FAQ[searchFaqs -> DB FAQs];
+    ToolFanout --> Catalog[searchCatalog -> hybrid];
+    FAQ --> FAQCtx[Add FAQ payload to messages];
+    Catalog --> CatalogCtx[Add catalog payload; ragSource=hybrid];
+    FAQ --> ToolLog[logToolPayload + counts];
+    Catalog --> ToolLog;
 
-    Tools --> Logs[logToolPayload + métricas híbridas];
-    PreHybrid --> Logs;
-    C --> Logs;
-    Logs --> SSE[/api/logs/stream para a UI];
+    FAQCtx --> SecondLLM;
+    CatalogCtx --> SecondLLM;
+    PreCtx --> SecondLLM;
+    SecondLLM[OpenRouter call #2 with collected contexts] --> Resp;
+
+    ToolLog --> SSE[/api/logs/stream -> UI];
+    LogPre --> SSE;
 ```
 
-- `requiresProductClarification` keeps the DB untouched when the ask is too generic.
-- `detectAgronomyIntent` triggers the pre hybrid search and injects its summary as a `system` message before the LLM decides to call tools.
-- If no structured source is consulted (`databaseQueried=false`), the response comes from the first call only (`llmCalls=1`).
-- When tools run, the backend performs hybrid catalog + FAQ lookups, attaches context, and issues the second OpenRouter call.
-- Search logs and tool payloads stream via SSE to the in-app terminal.
+- `requiresProductClarification` encerra o fluxo antes de qualquer chamada de LLM/DB quando o pedido é apenas “liste produtos”.
+- `detectAgronomyIntent` dispara uma pré-busca híbrida e injeta seu resumo como `system`, marcando `databaseQueried=true` mesmo que a IA não chame tools depois.
+- `detectForcedTool` força `tool_choice=searchCatalog` quando há forte intenção de catálogo para evitar respostas sem contexto.
+- Se `databaseQueried=false` (sem pré-busca e sem tool calls), a resposta vem apenas da primeira chamada (`llmCalls=1`, `ragSource=none`).
+- Quando tools são acionadas, o backend consulta FAQs + catálogo híbrido, anexa o contexto e faz a segunda chamada OpenRouter.
+- Logs de busca, payloads de tool e tempos chegam ao terminal via SSE.
 
 ## Testes rápidos
 
