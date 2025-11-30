@@ -2,44 +2,38 @@
 
 Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRouter, Express e Vite.
 
-## Hybrid RAG flow (chat)
+## Fluxo do sistema
 
 ```mermaid
 flowchart TD
-    U[User text] --> A[POST /api/chat]
+    U[Usuário] --> C[POST /api/chat]
 
-    A --> B{Generic product?}
-    B -->|yes| Clarify[Ask for details<br/>skip DB] --> R[Reply]
-    B -->|no| Intent{Catalog/agro intent?}
+    C -->|pergunta genérica de catálogo| Clarify[Solicita categoria/faixa de preço<br/>retorna sem DB]
+    C -->|intenção agro/catalogo| PreHybrid[Pré-busca híbrida]
+    C -->|outros| FirstLLM[Chamada LLM #1<br/>tools=searchFaqs/searchCatalog]
 
-    Intent -->|yes| Pre[Pre-search hybrid]
-    Pre --> PreCtx[Add system context]
-    Intent -->|no| FirstLLM[LLM call #1<br/>tools available]
+    PreHybrid --> PreCtx[Contexto híbrido vira system message]
     PreCtx --> FirstLLM
 
-    FirstLLM -->|searchFaqs| Faqs[searchFaqs]
-    Faqs --> FaqCtx[Add FAQ context]
-    FaqCtx --> MergeCtx[Context ready]
+    FirstLLM -->|sem tool ou sem DB| Direct[Resposta direta<br/>llmCalls=1]
+    Direct --> Resp[Resposta + debug]
 
-    FirstLLM -->|searchCatalog| Hybrid[searchCatalogHybrid]
-    Hybrid --> Lex[Lexical search]
-    Hybrid --> Emb[Generate embedding]
-    Emb -->|ok| Vec[Vector search]
-    Emb -->|fail| Fallback[Lexical only]
-    Lex --> Merge[mergeCatalogResults]
-    Vec --> Merge
-    Fallback --> Merge
-    Merge --> CatCtx[Add catalog context]
-    CatCtx --> MergeCtx
+    FirstLLM -->|tool call| Tools[Executa searchFaqs/searchCatalog via Drizzle]
+    Tools --> Ctx[Anexa contexto FAQ/Catálogo]
+    Ctx --> FinalLLM[Chamada LLM #2]
+    FinalLLM --> Resp
 
-    FirstLLM -->|none| MergeCtx
-
-    MergeCtx --> Final[LLM call #2<br/>final answer]
-    Final --> R[Reply + debug]
-
-    %% Debug/stats
-    Merge --> Stats[Log timings and counts]
+    Tools --> Logs[logToolPayload + métricas híbridas]
+    PreHybrid --> Logs
+    C --> Logs
+    Logs --> SSE[/api/logs/stream para a UI]
 ```
+
+- `requiresProductClarification` evita consultar DB quando o pedido é genérico demais.
+- `detectAgronomyIntent` dispara pré-busca híbrida e injeta o resumo como `system` antes do LLM decidir usar tools.
+- Se nenhuma fonte estruturada for consultada (`databaseQueried=false`), a resposta já sai da primeira chamada (`llmCalls=1`).
+- Quando tools são acionadas, o backend usa busca híbrida (vetorial + lexical) e FAQs, agrega contexto e faz a segunda chamada ao OpenRouter.
+- Logs de busca e payloads de tool são enviados via SSE para o terminal embutido no cliente.
 
 ## Testes rápidos
 

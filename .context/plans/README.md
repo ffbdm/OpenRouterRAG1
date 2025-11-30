@@ -11,14 +11,15 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 6. **Return here** and pick the next plan in the queue. Always leave the README and plan files consistent with the work performed.
 
 ## Plan Queue (process in order)
-1. [Ajusteembeddings](./ajusteembeddings.md)
-2. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
-3. [Log Return Ia Form Db](./log-return-ia-form-db.md)
-4. [One Shoot With Zero Tool Calls](./one-shoot-with-zero-tool-calls.md)
-5. [Rag Context Catalog](./rag-context-catalog.md)
-6. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
-7. [Rag System Hybrid](./rag-system-hybrid.md)
-8. [Ui Catalog](./ui-catalog.md)
+1. [Add Ui Instructions For Changes](./add-ui-instructions-for-changes.md)
+2. [Ajusteembeddings](./ajusteembeddings.md)
+3. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
+4. [Log Return Ia Form Db](./log-return-ia-form-db.md)
+5. [One Shoot With Zero Tool Calls](./one-shoot-with-zero-tool-calls.md)
+6. [Rag Context Catalog](./rag-context-catalog.md)
+7. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
+8. [Rag System Hybrid](./rag-system-hybrid.md)
+9. [Ui Catalog](./ui-catalog.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
