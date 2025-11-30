@@ -5,28 +5,28 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 ## Fluxo do sistema
 
 ```mermaid
-flowchart TD
-    U[Usuário] --> C[POST /api/chat]
+graph TD;
+    U[Usuário] --> C[POST /api/chat];
 
-    C -->|pergunta genérica de catálogo| Clarify[Solicita categoria/faixa de preço<br/>retorna sem DB]
-    C -->|intenção agro/catalogo| PreHybrid[Pré-busca híbrida]
-    C -->|outros| FirstLLM[Chamada LLM #1<br/>tools=searchFaqs/searchCatalog]
+    C -->|pergunta genérica de catálogo| Clarify[Solicita categoria/faixa de preço; não consulta DB];
+    C -->|intenção agro/catalogo| PreHybrid[Pré-busca híbrida (vetorial + lexical)];
+    C -->|outros| FirstLLM[Chamada LLM #1\nTools=searchFaqs/searchCatalog];
 
-    PreHybrid --> PreCtx[Contexto híbrido vira system message]
-    PreCtx --> FirstLLM
+    PreHybrid --> PreCtx[Contexto híbrido como system message];
+    PreCtx --> FirstLLM;
 
-    FirstLLM -->|sem tool ou sem DB| Direct[Resposta direta<br/>llmCalls=1]
-    Direct --> Resp[Resposta + debug]
+    FirstLLM -->|sem tool/sem DB| Direct[Resposta direta\nllmCalls=1];
+    Direct --> Resp[Resposta + debug];
 
-    FirstLLM -->|tool call| Tools[Executa searchFaqs/searchCatalog via Drizzle]
-    Tools --> Ctx[Anexa contexto FAQ/Catálogo]
-    Ctx --> FinalLLM[Chamada LLM #2]
-    FinalLLM --> Resp
+    FirstLLM -->|tool call| Tools[searchFaqs/searchCatalog + Drizzle];
+    Tools --> Ctx[Anexa contexto FAQ/Catálogo];
+    Ctx --> FinalLLM[Chamada LLM #2];
+    FinalLLM --> Resp;
 
-    Tools --> Logs[logToolPayload + métricas híbridas]
-    PreHybrid --> Logs
-    C --> Logs
-    Logs --> SSE[/api/logs/stream para a UI]
+    Tools --> Logs[logToolPayload + métricas híbridas];
+    PreHybrid --> Logs;
+    C --> Logs;
+    Logs --> SSE[/api/logs/stream para a UI];
 ```
 
 - `requiresProductClarification` evita consultar DB quando o pedido é genérico demais.
