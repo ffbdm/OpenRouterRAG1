@@ -18,7 +18,7 @@ import {
   type InsertSystemInstruction,
 } from "@shared/schema";
 import { db } from "./db";
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
 import { buildCatalogFileEmbeddingContent, buildSnippet } from "./catalog-embedding-utils";
@@ -192,6 +192,14 @@ export class DatabaseStorage implements IStorage {
     const embeddingParam = buildVectorParam(queryEmbedding);
     const distance = sql<number>`catalog_item_embeddings.embedding <#> ${embeddingParam}`;
 
+    // Novo: Threshold de similaridade (menor = melhor; ex: -0.3 = cos_sim ~0.3)
+    const threshold = Number(process.env.CATALOG_VECTOR_THRESHOLD ?? -0.5);
+    const whereClauses: SQL[] = [eq(catalogItems.status, "ativo")];
+    if (Number.isFinite(threshold)) {
+      whereClauses.push(sql`${distance} <= ${threshold}`);
+      console.log(`[VECTOR] Threshold aplicado: score <= ${threshold}`);
+    }
+
     try {
       const rows = await db
         .select({
@@ -202,7 +210,7 @@ export class DatabaseStorage implements IStorage {
         })
         .from(catalogItemEmbeddings)
         .innerJoin(catalogItems, eq(catalogItemEmbeddings.catalogItemId, catalogItems.id))
-        .where(eq(catalogItems.status, "ativo"))
+        .where(and(...whereClauses))
         .orderBy(distance)
         .limit(limit);
 
