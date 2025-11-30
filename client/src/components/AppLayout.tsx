@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Bot, Boxes } from "lucide-react";
+import { Bot, Boxes, NotebookPen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NavLink = {
@@ -22,6 +22,12 @@ const links: NavLink[] = [
     label: "Catálogo",
     description: "Listar, criar e editar itens",
     icon: Boxes,
+  },
+  {
+    href: "/instrucoes",
+    label: "Instruções",
+    description: "Editar prompts globais do sistema",
+    icon: NotebookPen,
   },
 ];
 

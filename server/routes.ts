@@ -7,6 +7,7 @@ import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
 import { registerCatalogRoutes } from "./catalog-routes";
 import { registerInstructionRoutes } from "./instruction-routes";
+import { ensureDefaultInstructions } from "./instruction-defaults";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -152,6 +153,7 @@ function logHybridStats(label: string, result: CatalogHybridSearchResult) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  await ensureDefaultInstructions();
   registerCatalogRoutes(app);
   registerInstructionRoutes(app);
 

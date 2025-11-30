@@ -15,6 +15,7 @@ import {
   type InsertCatalogFile,
   type SystemInstruction,
   type InstructionScope,
+  type InsertSystemInstruction,
 } from "@shared/schema";
 import { db } from "./db";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
@@ -110,6 +111,7 @@ export interface IStorage {
   listInstructions(params?: { scopes?: InstructionScope[] }): Promise<SystemInstruction[]>;
   getInstructionBySlug(slug: string): Promise<SystemInstruction | undefined>;
   updateInstructionContent(slug: string, content: string): Promise<SystemInstruction | undefined>;
+  createInstruction(instruction: InsertSystemInstruction): Promise<SystemInstruction>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -458,6 +460,15 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return updated;
+  }
+
+  async createInstruction(instruction: InsertSystemInstruction): Promise<SystemInstruction> {
+    const [created] = await db
+      .insert(systemInstructions)
+      .values(instruction)
+      .returning();
+
+    return created;
   }
 
   private async removeItemEmbeddings(itemId: number): Promise<void> {
