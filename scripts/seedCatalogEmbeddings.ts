@@ -10,12 +10,27 @@ import {
   type InsertCatalogItemEmbedding,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { buildCatalogFileEmbeddingContent } from "../server/catalog-embedding-utils";
+import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent } from "../server/catalog-embedding-utils";
 import { embeddingsEnabled, generateCatalogEmbedding, getEmbeddingSettings } from "../server/embeddings";
 
 async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
   const values: InsertCatalogItemEmbedding[] = [];
 
+  // Always generate item embedding
+  const itemContent = buildCatalogItemEmbeddingContent(item);
+  const itemEmbedding = await generateCatalogEmbedding(itemContent);
+  if (itemEmbedding) {
+    values.push({
+      catalogItemId: item.id,
+      source: "item",
+      content: itemContent,
+      embedding: itemEmbedding,
+    });
+  } else {
+    console.warn(`[SEED] Falha ao gerar embedding do item ${item.id} (${item.name}).`);
+  }
+
+  // Generate file embeddings if any
   const files = await db
     .select()
     .from(catalogFiles)
@@ -39,6 +54,7 @@ async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
     });
   }
 
+  // Delete old and insert new
   await db.transaction(async (tx) => {
     await tx
       .delete(catalogItemEmbeddings)
