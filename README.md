@@ -10,12 +10,12 @@ graph TD;
 
     C -->|pergunta genérica de catálogo| Clarify[Solicita categoria/faixa de preço; não consulta DB];
     C -->|intenção agro/catalogo| PreHybrid[Pré-busca híbrida (vetorial + lexical)];
-    C -->|outros| FirstLLM[Chamada LLM #1\nTools=searchFaqs/searchCatalog];
+    C -->|outros| FirstLLM[Chamada LLM #1<br/>Tools=searchFaqs/searchCatalog];
 
     PreHybrid --> PreCtx[Contexto híbrido como system message];
     PreCtx --> FirstLLM;
 
-    FirstLLM -->|sem tool/sem DB| Direct[Resposta direta\nllmCalls=1];
+    FirstLLM -->|sem tool/sem DB| Direct[Resposta direta<br/>llmCalls=1];
     Direct --> Resp[Resposta + debug];
 
     FirstLLM -->|tool call| Tools[searchFaqs/searchCatalog + Drizzle];
