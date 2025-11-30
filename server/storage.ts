@@ -21,7 +21,7 @@ import { db } from "./db";
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
-import { buildCatalogFileEmbeddingContent, buildSnippet } from "./catalog-embedding-utils";
+import { buildCatalogFileEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 
 let faqNormalizationEnsured = false;
@@ -205,7 +205,7 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
-  private async searchCatalogVector(queryEmbedding: number[], limit: number): Promise<{ results: CatalogHybridHit[]; error?: string }> {
+  private async searchCatalogVector(queryEmbedding: number[], query: string, limit: number): Promise<{ results: CatalogHybridHit[]; error?: string }> {
     if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
       return { results: [] };
     }
@@ -239,7 +239,7 @@ export class DatabaseStorage implements IStorage {
         item: row.item,
         source: row.source as CatalogSearchSource,
         score: row.score,
-        snippet: buildSnippet(row.content),
+        snippet: buildFocusedSnippet(row.content, query),
       }));
 
       if (results.length > 0) {
@@ -273,7 +273,7 @@ export class DatabaseStorage implements IStorage {
     if (embedding && embedding.length > 0) {
       embeddingUsed = true;
       const vectorStartedAt = Date.now();
-      const vectorQuery = await this.searchCatalogVector(embedding, finalLimit);
+      const vectorQuery = await this.searchCatalogVector(embedding, query, finalLimit);
       vectorMs = Date.now() - vectorStartedAt;
       vectorResults = vectorQuery.results;
 
