@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,14 +49,25 @@ import {
 import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
 import { InstructionsPanel } from "@/components/InstructionsPanel";
-import { AlertCircle, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Tag, Trash2, UploadCloud } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Tag, Trash2, UploadCloud, XCircle } from "lucide-react";
+
+const optionalText = z.preprocess(
+  (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
+  z.string().default(""),
+);
 
 const catalogFormSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome do item"),
-  description: z.string().trim().min(5, "Descreva o item"),
-  category: z.string().trim().min(2, "Informe a categoria"),
-  manufacturer: z.string().trim().min(2, "Informe o fabricante"),
-  price: z.coerce.number().nonnegative("Preço deve ser zero ou positivo"),
+  description: optionalText,
+  category: optionalText,
+  manufacturer: optionalText,
+  price: z.preprocess(
+    (value) => {
+      if (value == null || value === "") return 0;
+      return value;
+    },
+    z.coerce.number().nonnegative("Preço deve ser zero ou positivo").default(0),
+  ),
   status: z.enum(catalogItemStatusValues).default("ativo"),
   tagsText: z.string().optional(),
 });
@@ -64,6 +75,19 @@ const catalogFormSchema = z.object({
 type CatalogFormValues = z.infer<typeof catalogFormSchema>;
 
 type CatalogMutationPayload = CatalogItemInput;
+type CatalogImportRowError = {
+  row: number;
+  fields: string[];
+  message: string;
+};
+type CatalogImportResult = {
+  created: number;
+  durationMs: number;
+  sampleIds?: number[];
+};
+
+const catalogImportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const catalogImportMaxBytes = 5 * 1024 * 1024;
 
 function formatBytes(value: number | null | undefined): string {
   if (!value || value < 0) return "-";
@@ -71,6 +95,12 @@ function formatBytes(value: number | null | undefined): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDurationMs(value: number): string {
+  if (!Number.isFinite(value)) return "-";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(2)} s`;
 }
 
 function CatalogFilesDialog({
@@ -563,6 +593,10 @@ export default function CatalogPage() {
   const [hardDelete, setHardDelete] = useState(false);
   const [filesItem, setFilesItem] = useState<CatalogItem | null>(null);
   const [filesDialogOpen, setFilesDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importErrors, setImportErrors] = useState<CatalogImportRowError[]>([]);
+  const [importResult, setImportResult] = useState<CatalogImportResult | null>(null);
+  const [isDraggingImport, setIsDraggingImport] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -584,6 +618,90 @@ export default function CatalogPage() {
   const invalidateCatalog = () => {
     queryClient.invalidateQueries({ queryKey: ["catalog"] });
   };
+
+  const downloadTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/catalog/import/template", { credentials: "include" });
+      if (!res.ok) {
+        const message = (await res.text()) || res.statusText;
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "catalogo-template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Template baixado",
+        description: "Planilha pronta para preencher.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Erro ao baixar template",
+        description: error instanceof Error ? error.message : "Não foi possível gerar o template.",
+      });
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/catalog/import", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      const isJson = contentType.includes("application/json");
+      const payload = isJson ? await res.json() : await res.text();
+
+      if (!res.ok) {
+        const message = isJson
+          ? (payload as { error?: string })?.error ?? "Erro ao importar catálogo"
+          : (payload as string) || "Erro ao importar catálogo";
+
+        const error = new Error(message) as Error & { details?: CatalogImportRowError[] };
+        if (isJson && Array.isArray((payload as { errors?: CatalogImportRowError[] })?.errors)) {
+          error.details = (payload as { errors?: CatalogImportRowError[] }).errors;
+        }
+
+        throw error;
+      }
+
+      return payload as CatalogImportResult;
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      setImportErrors([]);
+      setImportFile(null);
+      toast({
+        title: "Importação concluída",
+        description: `Foram criados ${data.created} itens em ${formatDurationMs(data.durationMs)}.`,
+      });
+      invalidateCatalog();
+    },
+    onError: (error: Error & { details?: CatalogImportRowError[] }) => {
+      setImportResult(null);
+      setImportErrors(error.details ?? []);
+      toast({
+        variant: "destructive",
+        title: "Erro ao importar catálogo",
+        description: error.message || "Falha ao processar a planilha.",
+      });
+    },
+  });
 
   const createMutation = useMutation({
     mutationFn: async (payload: CatalogMutationPayload) => {
@@ -700,6 +818,57 @@ export default function CatalogPage() {
     }
   };
 
+  const handleImportFile = (file: File | null) => {
+    setImportErrors([]);
+    setImportResult(null);
+
+    if (!file) {
+      setImportFile(null);
+      return;
+    }
+
+    if (file.size > catalogImportMaxBytes) {
+      toast({
+        variant: "destructive",
+        title: "Arquivo muito grande",
+        description: `Limite de ${(catalogImportMaxBytes / (1024 * 1024)).toFixed(1)}MB por planilha.`,
+      });
+      return;
+    }
+
+    const isValidMime = file.type === catalogImportMime || file.name.toLowerCase().endsWith(".xlsx");
+    if (!isValidMime) {
+      toast({
+        variant: "destructive",
+        title: "Formato inválido",
+        description: "Envie um arquivo .xlsx gerado a partir do template.",
+      });
+      return;
+    }
+
+    setImportFile(file);
+  };
+
+  const handleDropImport = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDraggingImport(false);
+    const file = event.dataTransfer.files?.[0];
+    handleImportFile(file ?? null);
+  };
+
+  const submitImport = () => {
+    if (!importFile) {
+      toast({
+        variant: "destructive",
+        title: "Selecione um arquivo",
+        description: "Escolha a planilha .xlsx antes de enviar.",
+      });
+      return;
+    }
+
+    importMutation.mutate(importFile);
+  };
+
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 pt-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -726,6 +895,117 @@ export default function CatalogPage() {
         title="Instruções do catálogo"
         description="Revise o checklist de preenchimento antes de criar ou editar itens."
       />
+
+      <Card className="space-y-4 p-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Importar catálogo em lote</p>
+            <p className="text-xs text-muted-foreground">
+              Envie uma planilha .xlsx seguindo o template. Limite de {(catalogImportMaxBytes / (1024 * 1024)).toFixed(1)}MB e 500 linhas úteis.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 md:flex-row">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadTemplateMutation.mutate()}
+              disabled={downloadTemplateMutation.isPending}
+            >
+              {downloadTemplateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Download className="mr-2 h-4 w-4" />
+              Baixar template
+            </Button>
+            <Button
+              size="sm"
+              onClick={submitImport}
+              disabled={!importFile || importMutation.isPending}
+            >
+              {importMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <UploadCloud className="mr-2 h-4 w-4" />
+              Enviar planilha
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Input
+            id="catalog-import-file"
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={(event) => handleImportFile(event.target.files?.[0] ?? null)}
+          />
+          <label
+            htmlFor="catalog-import-file"
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-center text-sm transition ${
+              isDraggingImport ? "border-primary bg-primary/5" : "border-muted-foreground/40"
+            }`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDraggingImport(true);
+            }}
+            onDragLeave={() => setIsDraggingImport(false)}
+            onDrop={handleDropImport}
+          >
+            <UploadCloud className="h-5 w-5 text-primary" />
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">Arraste e solte ou clique para selecionar o .xlsx</p>
+              <p className="text-xs text-muted-foreground">
+                Cabeçalho fixo: Nome, Descrição, Categoria, Fabricante, Preço, Status, Tags.
+              </p>
+            </div>
+
+            {importFile ? (
+              <p className="rounded-md bg-muted px-3 py-1 text-xs text-foreground">
+                {importFile.name} ({formatBytes(importFile.size)})
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Aceita apenas arquivos .xlsx
+              </p>
+            )}
+          </label>
+        </div>
+
+        {importResult && (
+          <div className="flex items-start gap-2 rounded-md border border-emerald-500/50 bg-emerald-500/5 p-3 text-sm text-emerald-700">
+            <CheckCircle2 className="mt-[2px] h-4 w-4" />
+            <div className="space-y-1">
+              <p className="font-medium">Importação concluída</p>
+              <p className="text-xs">
+                {importResult.created} item{importResult.created === 1 ? "" : "s"} criado{importResult.created === 1 ? "" : "s"} em {formatDurationMs(importResult.durationMs)}.
+              </p>
+              {importResult.sampleIds && importResult.sampleIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  IDs de exemplo: {importResult.sampleIds.slice(0, 5).join(", ")}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {importErrors.length > 0 && (
+          <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
+            <div className="flex items-center gap-2 font-medium">
+              <XCircle className="h-4 w-4" />
+              Erros encontrados ({importErrors.length})
+            </div>
+            <div className="space-y-1 text-xs text-destructive">
+              {importErrors.slice(0, 6).map((error) => (
+                <div key={`${error.row}-${error.message}`} className="rounded bg-white/40 px-2 py-1">
+                  Linha {error.row}: {error.message}
+                  {error.fields.length > 0 && (
+                    <span className="text-[11px] text-muted-foreground"> — campos: {error.fields.join(", ")}</span>
+                  )}
+                </div>
+              ))}
+              {importErrors.length > 6 && (
+                <p className="text-[11px] text-muted-foreground">Mostrando 6 de {importErrors.length} erros.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
 
       <Card className="space-y-4 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

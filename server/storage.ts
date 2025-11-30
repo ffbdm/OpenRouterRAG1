@@ -121,6 +121,7 @@ export interface IStorage {
   }): Promise<CatalogItem[]>;
   getCatalogItemById(id: number): Promise<CatalogItem | undefined>;
   createCatalogItem(item: CatalogItemInput): Promise<CatalogItem>;
+  bulkInsertCatalogItems(items: CatalogItemInput[]): Promise<CatalogItem[]>;
   updateCatalogItem(id: number, item: CatalogItemInput): Promise<CatalogItem | undefined>;
   deleteCatalogItem(id: number, options?: { hardDelete?: boolean }): Promise<{ deleted: boolean; archived: boolean; item?: CatalogItem }>;
   createFaq(faq: InsertFaq): Promise<Faq>;
@@ -351,6 +352,33 @@ export class DatabaseStorage implements IStorage {
         tags: item.tags ?? [],
       })
       .returning();
+
+    return created;
+  }
+
+  async bulkInsertCatalogItems(items: CatalogItemInput[]): Promise<CatalogItem[]> {
+    if (items.length === 0) return [];
+
+    const chunkSize = 100;
+    const created: CatalogItem[] = [];
+
+    await db.transaction(async (tx) => {
+      for (let index = 0; index < items.length; index += chunkSize) {
+        const chunk = items
+          .slice(index, index + chunkSize)
+          .map((item) => ({
+            ...item,
+            tags: item.tags ?? [],
+          }));
+
+        const inserted = await tx
+          .insert(catalogItems)
+          .values(chunk)
+          .returning();
+
+        created.push(...inserted);
+      }
+    });
 
     return created;
   }

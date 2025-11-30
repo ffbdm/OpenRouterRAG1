@@ -73,3 +73,10 @@ flowchart TD
 - A SPA mostra o painel diretamente nas páginas de Chat e Catálogo, reutilizando o componente `InstructionsPanel` para listar, editar e salvar instruções com React Query.
 - O prompt do chat (`chat-system`) agora é lido do banco antes de cada requisição; se o registro não existir, o servidor aplica o fallback codificado.
 - Após atualizar `shared/schema.ts`, rode `npm run db:push` para criar a nova tabela e inserir os seeds (`chat-system`, `catalog-guidelines`, `global-operating-principles`).
+
+## Importação em lote do catálogo
+
+- `GET /api/catalog/import/template` gera a planilha `.xlsx` com cabeçalho fixo (Nome, Descrição, Categoria, Fabricante, Preço, Status, Tags) e duas linhas de exemplo.
+- `POST /api/catalog/import` aceita apenas `.xlsx` (5MB, 500 linhas úteis) via `multipart/form-data` com campo `file`; valida cabeçalho, deduplica linhas por par nome+fabricante e aplica o schema existente do catálogo.
+- Em caso de erro, retorna `400` com `{ errors: [{ row, fields, message }] }` sem inserir nada. Sucesso retorna `{ created, durationMs, sampleIds }`.
+- A página `/catalogo` tem a seção “Importar catálogo em lote” com download do template, upload arraste-e-solte e resumo de erros ou itens criados; ao concluir, a lista é atualizada automaticamente.

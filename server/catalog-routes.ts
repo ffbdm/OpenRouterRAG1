@@ -2,8 +2,8 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { catalogItemStatusValues } from "@shared/schema";
-import { storage } from "./storage";
+import { catalogPayloadSchema, statusFilterSchema } from "./catalog-validation";
+import { storage, type IStorage } from "./storage";
 import {
   allowedCatalogFileMimeTypes,
   deleteCatalogBlob,
@@ -13,38 +13,7 @@ import {
   validateCatalogFile,
 } from "./catalog-file-storage";
 import { extractTextPreview } from "./catalog-file-preview";
-
-const statusFilterSchema = z.union([
-  z.enum(catalogItemStatusValues),
-  z.literal("all"),
-]).optional();
-
-const tagsSchema = z.preprocess((value) => {
-  if (Array.isArray(value)) {
-    return value
-      .map((tag) => (typeof tag === "string" ? tag.trim() : String(tag).trim()))
-      .filter(Boolean);
-  }
-
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-  }
-
-  return [];
-}, z.array(z.string()).default([]));
-
-const catalogPayloadSchema = z.object({
-  name: z.string().trim().min(2, "Informe o nome do item"),
-  description: z.string().trim().min(5, "Descreva o item"),
-  category: z.string().trim().min(2, "Informe a categoria"),
-  manufacturer: z.string().trim().min(2, "Informe o fabricante"),
-  price: z.coerce.number().nonnegative("Preço deve ser zero ou positivo"),
-  status: z.enum(catalogItemStatusValues).default("ativo"),
-  tags: tagsSchema,
-});
+import { catalogImportLimits, catalogXlsxMimeType, generateCatalogTemplate, parseCatalogImport } from "./catalog-import";
 
 const catalogQuerySchema = z.object({
   search: z.string().optional(),
@@ -66,11 +35,35 @@ const upload = multer({
   },
 });
 
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: catalogImportLimits.maxBytes,
+  },
+});
+
 function runUploadMiddleware(req: Request, res: Response, next: NextFunction) {
   upload.single("file")(req, res, (error: unknown) => {
     if (error) {
       if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
         const maxMb = (getCatalogBlobMaxSize() / (1024 * 1024)).toFixed(1);
+        return res.status(400).json({ error: `Arquivo excede o limite de ${maxMb}MB.` });
+      }
+
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Erro ao processar upload",
+      });
+    }
+
+    next();
+  });
+}
+
+function runImportUploadMiddleware(req: Request, res: Response, next: NextFunction) {
+  importUpload.single("file")(req, res, (error: unknown) => {
+    if (error) {
+      if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+        const maxMb = (catalogImportLimits.maxBytes / (1024 * 1024)).toFixed(1);
         return res.status(400).json({ error: `Arquivo excede o limite de ${maxMb}MB.` });
       }
 
@@ -90,8 +83,81 @@ function handleValidationError(res: Response, error: z.ZodError) {
   });
 }
 
-export function registerCatalogRoutes(app: Express) {
+export function registerCatalogRoutes(app: Express, options?: { storage?: IStorage }) {
   const router = Router();
+  const catalogStorage = options?.storage ?? storage;
+
+  router.get("/import/template", async (_req, res) => {
+    try {
+      const buffer = generateCatalogTemplate();
+      res.setHeader("Content-Type", catalogXlsxMimeType);
+      res.setHeader("Content-Disposition", "attachment; filename=\"catalogo-template.xlsx\"");
+      return res.send(buffer);
+    } catch (error) {
+      console.error("[CATALOG_IMPORT] Erro ao gerar template:", error);
+      return res.status(500).json({ error: "Não foi possível gerar o template" });
+    }
+  });
+
+  router.post("/import", runImportUploadMiddleware, async (req, res) => {
+    const startedAt = Date.now();
+    console.log("[CATALOG_IMPORT] start", {
+      filename: req.file?.originalname,
+      size: req.file?.size,
+      mimetype: req.file?.mimetype,
+    });
+
+    if (!req.file) {
+      return res.status(400).json({ error: "Arquivo não enviado" });
+    }
+
+    if (req.file.size <= 0) {
+      return res.status(400).json({ error: "Arquivo está vazio" });
+    }
+
+    if (req.file.mimetype !== catalogXlsxMimeType || !req.file.originalname.toLowerCase().endsWith(".xlsx")) {
+      return res.status(400).json({ error: "Formato inválido. Envie um arquivo .xlsx" });
+    }
+
+    let parsed: ReturnType<typeof parseCatalogImport>;
+    try {
+      parsed = parseCatalogImport(req.file.buffer);
+    } catch (error) {
+      console.error("[CATALOG_IMPORT] Falha ao ler .xlsx:", error);
+      return res.status(400).json({ error: "Não foi possível ler o arquivo .xlsx enviado" });
+    }
+
+    console.log("[CATALOG_IMPORT] parsed", {
+      rows: parsed.rowCount,
+      errors: parsed.errors.length,
+    });
+
+    if (parsed.errors.length > 0) {
+      console.warn("[CATALOG_IMPORT] rowErrors", parsed.errors.slice(0, 5));
+      return res.status(400).json({
+        error: "Dados inválidos",
+        errors: parsed.errors,
+      });
+    }
+
+    try {
+      const created = await catalogStorage.bulkInsertCatalogItems(parsed.items);
+      const durationMs = Date.now() - startedAt;
+      console.log("[CATALOG_IMPORT] created", {
+        created: created.length,
+        durationMs,
+      });
+
+      return res.json({
+        created: created.length,
+        durationMs,
+        sampleIds: created.slice(0, 5).map((item) => item.id),
+      });
+    } catch (error) {
+      console.error("[CATALOG_IMPORT] Erro ao importar planilha:", error);
+      return res.status(500).json({ error: "Erro ao importar catálogo" });
+    }
+  });
 
   router.get("/", async (req, res) => {
     try {
@@ -101,7 +167,7 @@ export function registerCatalogRoutes(app: Express) {
       }
 
       const { search, status } = parsed.data;
-      const items = await storage.listCatalogItems({
+      const items = await catalogStorage.listCatalogItems({
         search,
         status: status ?? "ativo",
       });
@@ -120,7 +186,7 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, parsed.error);
       }
 
-      const item = await storage.getCatalogItemById(parsed.data.id);
+      const item = await catalogStorage.getCatalogItemById(parsed.data.id);
       if (!item) {
         return res.status(404).json({ error: "Item não encontrado" });
       }
@@ -139,7 +205,7 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, parsed.error);
       }
 
-      const created = await storage.createCatalogItem(parsed.data);
+      const created = await catalogStorage.createCatalogItem(parsed.data);
       return res.status(201).json({ item: created });
     } catch (error) {
       console.error("[CATALOG] Erro ao criar item:", error);
@@ -154,7 +220,7 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, idResult.error);
       }
 
-      const item = await storage.getCatalogItemById(idResult.data.id);
+      const item = await catalogStorage.getCatalogItemById(idResult.data.id);
       if (!item) {
         return res.status(404).json({ error: "Item não encontrado" });
       }
@@ -177,7 +243,7 @@ export function registerCatalogRoutes(app: Express) {
         token,
       });
 
-      const created = await storage.createCatalogFile({
+      const created = await catalogStorage.createCatalogFile({
         catalogItemId: item.id,
         originalName: req.file!.originalname,
         blobPath: uploadResult.blobPath,
@@ -201,12 +267,12 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, idResult.error);
       }
 
-      const item = await storage.getCatalogItemById(idResult.data.id);
+      const item = await catalogStorage.getCatalogItemById(idResult.data.id);
       if (!item) {
         return res.status(404).json({ error: "Item não encontrado" });
       }
 
-      const files = await storage.listCatalogFiles(item.id);
+      const files = await catalogStorage.listCatalogFiles(item.id);
 
       return res.json({
         files,
@@ -228,7 +294,7 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, parsed.error);
       }
 
-      const file = await storage.getCatalogFileById(parsed.data.fileId);
+      const file = await catalogStorage.getCatalogFileById(parsed.data.fileId);
       if (!file) {
         return res.status(404).json({ error: "Arquivo não encontrado" });
       }
@@ -241,7 +307,7 @@ export function registerCatalogRoutes(app: Express) {
       }
 
       await deleteCatalogBlob(file.blobPath || file.blobUrl, token);
-      await storage.deleteCatalogFile(file.id);
+      await catalogStorage.deleteCatalogFile(file.id);
 
       return res.json({ deleted: true, file });
     } catch (error) {
@@ -262,7 +328,7 @@ export function registerCatalogRoutes(app: Express) {
         return handleValidationError(res, payloadResult.error);
       }
 
-      const updated = await storage.updateCatalogItem(idResult.data.id, payloadResult.data);
+      const updated = await catalogStorage.updateCatalogItem(idResult.data.id, payloadResult.data);
       if (!updated) {
         return res.status(404).json({ error: "Item não encontrado para atualizar" });
       }
@@ -285,7 +351,7 @@ export function registerCatalogRoutes(app: Express) {
         ? ["true", "1", "yes", "sim"].includes(req.query.hard.toLowerCase())
         : false;
 
-      const result = await storage.deleteCatalogItem(parsed.data.id, { hardDelete });
+      const result = await catalogStorage.deleteCatalogItem(parsed.data.id, { hardDelete });
       if (!result.item) {
         return res.status(404).json({ error: "Item não encontrado para exclusão" });
       }

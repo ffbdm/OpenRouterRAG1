@@ -10,12 +10,14 @@ Explain how data enters, moves through, and exits the system, including interact
 4. A second OpenRouter call receives the enriched message history and returns the final answer.
 5. Express persists no state—responses plus debug metadata stream back to the SPA while SSE broadcasts log entries to the in-app terminal.
 6. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.
+7. Admins can download the `.xlsx` template via `GET /api/catalog/import/template` and upload batches through `POST /api/catalog/import` (multipart); the backend validates headers/rows, dedupes by nome+fabricante, and inserts in Drizzle chunks inside a transaction.
 
 ## Internal Movement
 - **Client → Server:** `client/src/pages/chat.tsx` uses `apiRequest` (React Query) to call the API and listens to `/api/logs/stream` via `LogTerminal`. `client/src/pages/catalog.tsx` now manages file uploads and lists with React Query keyed by catalog item ID.
 - **Server orchestration:** `server/routes.ts` constructs OpenRouter payloads, inspects tool calls, and emits debug payloads; `server/app.ts` injects middleware for timing/log truncation.
 - **Search helpers:** `server/storage.ts` tokenizes/normalizes queries before running Drizzle `ilike` conditions. All table contracts originate from `shared/schema.ts` to keep inserts, selects, and scripts consistent.
 - **Catalog attachments:** `server/catalog-routes.ts` handles uploads via `multer` in memory, validates MIME/size (`server/catalog-file-storage.ts`), streams buffers to Vercel Blob, and records metadata in `catalog_files`. `server/catalog-file-preview.ts` parses previews for pdf/doc/docx/rtf/odt/csv/text (truncated to ~2k chars) so embeddings/jobs can read `textPreview`. Deletions call Blob API first, then remove DB rows; cascade deletes clear files when a catalog item is hard-deleted.
+- **Batch catalog import:** `server/catalog-import.ts` parses `.xlsx` buffers (SheetJS), slugifies headers, normalizes PT-BR price/status/tags, and reuses `catalogPayloadSchema` for row validation. Limits: 5MB per file, 500 linhas úteis, and dedupe on nome+fabricante. `bulkInsertCatalogItems` chunks inserts (100) inside a transaction; UI shows summaries/errors and invalidates the catalog query cache on success.
 - **Config artifacts:** `plans/` documents retrieval strategies, `drizzle.config.ts` binds schema to migrations, and `vite.config.ts` defines module aliases that keep imports consistent.
 
 ## External Integrations
@@ -27,7 +29,7 @@ Explain how data enters, moves through, and exits the system, including interact
 - **Structured logging:** `server/app.ts` records method, path, status, duration, and (trimmed) JSON payloads for `/api` calls. Messages exceeding 80 chars are truncated but still broadcast via SSE.
 - **In-app terminal:** `/api/logs/stream` replays buffered entries so QA can see OpenRouter payloads, tool invocations, and DB counts without SSH.
 - **Tool payload tracing:** `server/routes.ts` usa `logToolPayload` para registrar exatamente qual conteúdo dos resultados das funções (`searchFaqs`, `searchCatalog`) é devolvido para a IA, incluindo argumentos resolvidos e prévias truncadas do contexto enviado.
-- **Error surfacing:** Any exception in `/api/chat` emits a 500 with `details` plus a console stack trace. There is no retry/backoff yet; operators should monitor for repeated OpenRouter or Neon failures via the SSE feed.
+- **Error surfacing:** Any exception in `/api/chat` emits a 500 with `details` plus a console stack trace. There is no retry/backoff yet; operators should monitor for repeated OpenRouter or Neon failures via the SSE feed. Importações em lote logam `[CATALOG_IMPORT] start/parsed/created` e o conjunto inicial de `rowErrors` para auditoria.
 - **Safeguards:** Catalog queries force tool usage when keywords match, reducing the chance of an LLM hallucination. Future improvements could auto-call `searchFaqs` if the model refuses.
 
 <!-- agent-readonly:guidance -->

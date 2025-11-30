@@ -65,10 +65,25 @@ export type InsertCatalogItem = z.infer<typeof insertCatalogItemSchema>;
 export type CatalogItem = typeof catalogItems.$inferSelect;
 export const catalogItemInputSchema = z.object({
   name: z.string().trim().min(2),
-  description: z.string().trim().min(5),
-  category: z.string().trim().min(2),
-  manufacturer: z.string().trim().min(2),
-  price: z.coerce.number().nonnegative(),
+  description: z.preprocess(
+    (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
+    z.string().default(""),
+  ),
+  category: z.preprocess(
+    (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
+    z.string().default(""),
+  ),
+  manufacturer: z.preprocess(
+    (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
+    z.string().default(""),
+  ),
+  price: z.preprocess(
+    (value) => {
+      if (value == null || value === "") return 0;
+      return value;
+    },
+    z.coerce.number().nonnegative(),
+  ),
   status: catalogItemStatusSchema.default("ativo"),
   tags: z.array(z.string()).default([]),
 });
