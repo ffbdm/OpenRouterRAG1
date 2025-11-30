@@ -21,6 +21,9 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 8. [Rag System Hybrid](./rag-system-hybrid.md)
 9. [Ui Catalog](./ui-catalog.md)
 
+### Open Questions
+- **Add Ui Instructions For Changes:** Schema não possui tabela/campos para instruções versionáveis; precisamos confirmar se novas entidades podem ser adicionadas em `shared/schema.ts` e quais perfis poderão editar esse conteúdo via UI (todo usuário autenticado ou somente admins?).
+
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
 - Run "ai-context plan <name> --fill" (optionally with "--dry-run") to have an LLM refresh the plan using the latest repository context.

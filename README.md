@@ -2,25 +2,25 @@
 
 Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRouter, Express e Vite.
 
-## Fluxo do sistema
+## System flow
 
 ```mermaid
 graph TD;
-    U[Usuário] --> C[POST /api/chat];
+    U[User] --> C[POST /api/chat];
 
-    C -->|pergunta genérica de catálogo| Clarify[Solicita categoria/faixa de preço; não consulta DB];
-    C -->|intenção agro/catalogo| PreHybrid[Pré-busca híbrida (vetorial + lexical)];
-    C -->|outros| FirstLLM[Chamada LLM #1<br/>Tools=searchFaqs/searchCatalog];
+    C -->|generic catalog question| Clarify[Ask category/price range; skip DB];
+    C -->|agro/catalog intent| PreHybrid[Pre hybrid search (vector + lexical)];
+    C -->|other| FirstLLM[LLM call #1<br/>Tools=searchFaqs/searchCatalog];
 
-    PreHybrid --> PreCtx[Contexto híbrido como system message];
+    PreHybrid --> PreCtx[Hybrid context as system message];
     PreCtx --> FirstLLM;
 
-    FirstLLM -->|sem tool/sem DB| Direct[Resposta direta<br/>llmCalls=1];
-    Direct --> Resp[Resposta + debug];
+    FirstLLM -->|no tool/no DB| Direct[Direct answer<br/>llmCalls=1];
+    Direct --> Resp[Response + debug];
 
     FirstLLM -->|tool call| Tools[searchFaqs/searchCatalog + Drizzle];
-    Tools --> Ctx[Anexa contexto FAQ/Catálogo];
-    Ctx --> FinalLLM[Chamada LLM #2];
+    Tools --> Ctx[Attach FAQ/Catalog context];
+    Ctx --> FinalLLM[LLM call #2];
     FinalLLM --> Resp;
 
     Tools --> Logs[logToolPayload + métricas híbridas];
@@ -29,11 +29,11 @@ graph TD;
     Logs --> SSE[/api/logs/stream para a UI];
 ```
 
-- `requiresProductClarification` evita consultar DB quando o pedido é genérico demais.
-- `detectAgronomyIntent` dispara pré-busca híbrida e injeta o resumo como `system` antes do LLM decidir usar tools.
-- Se nenhuma fonte estruturada for consultada (`databaseQueried=false`), a resposta já sai da primeira chamada (`llmCalls=1`).
-- Quando tools são acionadas, o backend usa busca híbrida (vetorial + lexical) e FAQs, agrega contexto e faz a segunda chamada ao OpenRouter.
-- Logs de busca e payloads de tool são enviados via SSE para o terminal embutido no cliente.
+- `requiresProductClarification` keeps the DB untouched when the ask is too generic.
+- `detectAgronomyIntent` triggers the pre hybrid search and injects its summary as a `system` message before the LLM decides to call tools.
+- If no structured source is consulted (`databaseQueried=false`), the response comes from the first call only (`llmCalls=1`).
+- When tools run, the backend performs hybrid catalog + FAQ lookups, attaches context, and issues the second OpenRouter call.
+- Search logs and tool payloads stream via SSE to the in-app terminal.
 
 ## Testes rápidos
 
