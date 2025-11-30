@@ -56,28 +56,49 @@ function buildCatalogSearchCondition(query: string) {
   const tokens = extractSearchTokens(query);
   const trimmed = query.trim();
 
-  const buildFieldMatch = (term: string) => {
-    const pattern = `%${term}%`;
+  const buildFieldMatch = (term: string, options?: { partial?: boolean }) => {
     const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
 
+    if (options?.partial) {
+      const likePattern = `%${term}%`;
+      return or(
+        ilike(catalogItems.name, likePattern),
+        ilike(catalogItems.description, likePattern),
+        ilike(catalogItems.category, likePattern),
+        ilike(catalogItems.manufacturer, likePattern),
+        ilike(tagsText, likePattern)
+      );
+    }
+
+    const regex = buildWordBoundaryPattern(term);
     return or(
-      ilike(catalogItems.name, pattern),
-      ilike(catalogItems.description, pattern),
-      ilike(catalogItems.category, pattern),
-      ilike(catalogItems.manufacturer, pattern),
-      ilike(tagsText, pattern)
+      sql`${catalogItems.name} ~* ${regex}`,
+      sql`${catalogItems.description} ~* ${regex}`,
+      sql`${catalogItems.category} ~* ${regex}`,
+      sql`${catalogItems.manufacturer} ~* ${regex}`,
+      sql`${tagsText} ~* ${regex}`,
     );
   };
 
   if (tokens.length === 0) {
-    return buildFieldMatch(trimmed || query);
+    return buildFieldMatch(trimmed || query, { partial: true });
   }
 
   if (tokens.length === 1) {
     return buildFieldMatch(tokens[0]);
   }
 
-  return or(...tokens.map(buildFieldMatch));
+  return or(...tokens.map((token) => buildFieldMatch(token)));
+}
+
+function buildWordBoundaryPattern(term: string): string {
+  const normalized = term.trim();
+  if (!normalized) return "";
+  return `\\m${escapeRegex(normalized)}\\M`;
+}
+
+function escapeRegex(input: string): string {
+  return input.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 function buildVectorParam(embedding: number[]) {

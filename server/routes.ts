@@ -157,6 +157,17 @@ function logHybridStats(label: string, result: CatalogHybridSearchResult) {
   if (result.fallbackReason) {
     console.log(`[RAG] Fallback: ${result.fallbackReason}`);
   }
+
+  if (result.results.length > 0) {
+    console.log(`[RAG] Detalhes de ranking:`);
+    result.results.forEach((hit, index) => {
+      const vectorScore = typeof hit.score === "number" ? hit.score.toFixed(4) : "n/a";
+      const lexicalScore = typeof hit.lexicalScore === "number" ? hit.lexicalScore.toFixed(2) : "n/a";
+      const pairTag = hit.lexicalSignals?.hasCultureTreatmentPair ? " pair" : "";
+      const sourceLabel = hit.source === "lexical" ? "lexical" : `vetorial:${hit.source}`;
+      console.log(`  #${index + 1} ${hit.item.name} | fonte=${sourceLabel} | vec=${vectorScore} | lex=${lexicalScore}${pairTag}`);
+    });
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
