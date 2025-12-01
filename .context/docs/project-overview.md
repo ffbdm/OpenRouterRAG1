@@ -17,6 +17,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - `attached_assets/` — Reference copy decks and prompt transcripts used to prime the UI copy or future training runs.
 - `client/` — Vite + React SPA (pages, shadcn/ui components, hooks, query client, Tailwind styles, HTML template).
 - `client/src/components/InstructionsPanel.tsx` — painel reutilizável que lista/edita instruções por escopo diretamente no Chat e no Catálogo, agora destacando as duas etapas do prompt do chat.
+- `client/src/components/MarkdownMessage.tsx` — renderer Markdown sanitizado (remark-gfm + rehype-sanitize) usado na página de chat para exibir respostas do LLM com listas, código e tabelas sem comprometer segurança.
 - `components.json` — shadcn/ui generator settings (aliases, tailwind path, preferred style variant).
 - `design_guidelines.md` — Product design spec describing typography, layout, and UX constraints for the chat experience.
 - `drizzle.config.ts` — Drizzle Kit configuration that maps `shared/schema.ts` to migrations and enforces `DATABASE_URL` presence.
@@ -49,6 +50,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - shadcn/ui + Radix UI building blocks standardize inputs, dialogs, and cards.
 - Lucide icons, React Hook Form helpers, and `@tanstack/react-query` power the chat form/responses.
 - TailwindCSS (plus `tailwind-merge`, `tailwindcss-animate`) enforces spacing/typography rules defined in `design_guidelines.md`.
+- `@tailwindcss/typography` + `MarkdownMessage` garantem que mensagens do LLM exibam Markdown rico (GFM) com estilos consistentes e sanitização por padrão.
 - The experience is Portuguese-first; keep copy localized and ensure buttons/tooltips remain accessible (ARIA labels, focus styles).
 
 ## Development Tools Overview

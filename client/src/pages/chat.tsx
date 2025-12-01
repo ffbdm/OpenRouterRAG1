@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import LogTerminal from "@/components/LogTerminal";
+import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { Send, Bot, User } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -123,9 +124,13 @@ export default function ChatPage() {
                     <Card
                       className={`p-4 ${message.role === "user" ? "bg-primary text-primary-foreground border-primary-border" : ""}`}
                     >
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {message.content}
-                      </p>
+                      {message.role === "user" ? (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                          {message.content}
+                        </p>
+                      ) : (
+                        <MarkdownMessage content={message.content} />
+                      )}
                     </Card>
                   </div>
                 </div>
