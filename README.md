@@ -71,8 +71,8 @@ flowchart TD
 
 - O backend expõe `GET /api/instructions` (filtro opcional `?scope=chat,catalog`) e `PUT /api/instructions/:slug` para atualizar o conteúdo versionado na tabela `system_instructions`.
 - A SPA mostra o painel diretamente nas páginas de Chat e Catálogo, reutilizando o componente `InstructionsPanel` para listar, editar e salvar instruções com React Query.
-- O prompt do chat (`chat-system`) agora é lido do banco antes de cada requisição; se o registro não existir, o servidor aplica o fallback codificado.
-- Após atualizar `shared/schema.ts`, rode `npm run db:push` para criar a nova tabela e inserir os seeds (`chat-system`, `catalog-guidelines`, `global-operating-principles`).
+- O prompt do chat passou a ser dividido em duas mensagens `system`: `buscar-dados` (etapa 1, coleta de contexto) e `responder-usuario` (etapa 2, formatação da resposta). Ambas são lidas do banco em ordem determinística e têm fallback codificado caso o registro seja removido.
+- Após atualizar `shared/schema.ts`, rode `npm run db:push` para criar/alterar a tabela e inserir os seeds (`global-operating-principles`, `buscar-dados`, `responder-usuario`, `catalog-guidelines`).
 
 ## Importação em lote do catálogo
 

@@ -18,6 +18,17 @@ const scopeLabels: Record<InstructionScope, string> = {
   global: "Global",
 };
 
+const instructionMeta: Record<string, { stageLabel?: string; helper?: string }> = {
+  "buscar-dados": {
+    stageLabel: "Etapa 1",
+    helper: "Explica como coletar contexto antes de chamar o modelo pela segunda vez.",
+  },
+  "responder-usuario": {
+    stageLabel: "Etapa 2",
+    helper: "Define o formato estruturado da resposta enviada ao usuário final.",
+  },
+};
+
 type InstructionsPanelProps = {
   scopes: InstructionScope[];
   title?: string;
@@ -149,6 +160,7 @@ export function InstructionsPanel({
               const isDirty = draft.trim() !== instruction.content.trim();
               const isSaving = updateMutation.isPending && updateMutation.variables?.slug === instruction.slug;
               const updatedAt = new Date(instruction.updatedAt).toLocaleString("pt-BR");
+              const meta = instructionMeta[instruction.slug];
 
               return (
                 <AccordionItem key={instruction.slug} value={instruction.slug} className="rounded-md border">
@@ -157,9 +169,15 @@ export function InstructionsPanel({
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-sm text-foreground">{instruction.title}</span>
                         <Badge variant="secondary">{scopeLabels[instruction.scope]}</Badge>
+                        {meta?.stageLabel && (
+                          <Badge variant="outline">{meta.stageLabel}</Badge>
+                        )}
                       </div>
                       {instruction.description && (
                         <p className="text-xs text-muted-foreground">{instruction.description}</p>
+                      )}
+                      {meta?.helper && (
+                        <p className="text-xs text-muted-foreground">{meta.helper}</p>
                       )}
                       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                         Atualizado em {updatedAt}

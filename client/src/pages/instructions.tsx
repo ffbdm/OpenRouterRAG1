@@ -29,7 +29,7 @@ export default function InstructionsPage() {
         <InstructionsPanel
           scopes={["chat"]}
           title="Prompts do chat"
-          description="Afetam o comportamento da IA nas conversas e o processamento de tool calls."
+          description="Afetam o comportamento da IA nas conversas. O fluxo agora possui duas etapas (buscar dados e responder o usuário), cada uma com sua instrução dedicada."
         />
         <Separator />
         <InstructionsPanel

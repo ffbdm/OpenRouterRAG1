@@ -21,7 +21,7 @@ import { db } from "./db";
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
-import { buildCatalogFileEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
+import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 
 let faqNormalizationEnsured = false;
@@ -511,7 +511,11 @@ export class DatabaseStorage implements IStorage {
     const baseQuery = db
       .select()
       .from(systemInstructions)
-      .orderBy(asc(systemInstructions.scope), asc(systemInstructions.title));
+      .orderBy(
+        asc(systemInstructions.scope),
+        asc(systemInstructions.orderIndex),
+        asc(systemInstructions.title)
+      );
 
     if (scopes.length === 0) {
       return baseQuery;

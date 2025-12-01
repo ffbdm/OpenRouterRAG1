@@ -14,6 +14,7 @@ Collect the scripts, automation, and editor settings that keep contributors effi
 - Add a git pre-push hook that runs `npm run check` to catch type regressions before CI.
 - Use `npm run dev` during feature work; it automatically reloads the SPA and Express routes while mirroring production logging.
 - After editing `shared/schema.ts`, run `npm run db:push` followed by `npm run tsx scripts/seedCatalog.ts` to validate migrations plus default data in one loop.
+- Sempre que alterar `system_instructions` (ex.: novos slugs `buscar-dados`/`responder-usuario`), rode `npm run db:push` e confira `GET /api/instructions` para garantir que a ordenação e os seeds aplicaram corretamente.
 - `tsx` (already installed) can run ad-hoc scripts: `npm run tsx path/to/file.ts` without compiling.
 
 ## IDE / Editor Setup

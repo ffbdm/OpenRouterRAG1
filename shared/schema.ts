@@ -155,6 +155,7 @@ export const systemInstructions = pgTable("system_instructions", {
   title: text("title").notNull(),
   description: text("description"),
   content: text("content").notNull(),
+  orderIndex: integer("order_index").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

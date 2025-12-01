@@ -7,7 +7,7 @@ import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
 import { registerCatalogRoutes } from "./catalog-routes";
 import { registerInstructionRoutes } from "./instruction-routes";
-import { ensureDefaultInstructions } from "./instruction-defaults";
+import { defaultInstructionSlugs, ensureDefaultInstructions, getDefaultInstructionContent } from "./instruction-defaults";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -77,8 +77,21 @@ const agronomyKeywords = [
   "adjuvante",
 ];
 
-const CHAT_SYSTEM_SLUG = "chat-system";
-const DEFAULT_CHAT_SYSTEM_PROMPT = "Você é um assistente de FAQ e catálogo inteligente. Consulte searchFaqs para perguntas frequentes e searchCatalog para dúvidas sobre produtos, itens, fabricantes ou preços. A tool searchCatalog retorna uma busca híbrida (vetorial + lexical) com score. Baseie suas respostas nos resultados encontrados e informe se nada for localizado. Responda sempre em português de forma clara e objetiva.";
+const defaultGatherInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather)
+  ?? "Você opera em duas etapas. Nesta etapa 1, concentre-se em levantar dados antes de responder ao usuário: (1) analise a pergunta e defina quais tools devem ser chamadas; use searchFaqs para processos/políticas e searchCatalog para produtos, fabricantes, preços e ingredientes agronômicos. (2) Sempre que houver termos de catálogo ou agronomia, chame searchCatalog com o texto completo da pergunta (adicione termos-chave apenas se necessário). (3) Resuma os resultados em português destacando nome do item, categoria, fabricante, preço, tags ou trechos úteis das FAQs. (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
+const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond)
+  ?? "Após concluir a etapa de coleta, use apenas os dados enviados como mensagens system para responder ao usuário. Estruture o retorno em português seguindo esta ordem: (1) Resumo da busca — cite quais fontes foram consultadas (FAQs, catálogo ou ambos) e a quantidade de itens relevantes. (2) Resposta principal — entregue a orientação solicitada citando nomes de produtos, fabricantes, preços ou trechos da FAQ que suportem a conclusão. (3) Próximos passos — sugira ações quando não houver dados suficientes (ex.: pedir mais detalhes ou direcionar para o time certo). Se nada foi encontrado, comunique isso claramente e proponha um próximo passo em vez de inventar. Mantenha tom profissional, use frases curtas e evite repetir a pergunta.";
+
+const chatInstructionChain = [
+  {
+    slug: defaultInstructionSlugs.chatGather,
+    fallback: defaultGatherInstruction,
+  },
+  {
+    slug: defaultInstructionSlugs.chatRespond,
+    fallback: defaultRespondInstruction,
+  },
+] as const;
 
 function detectForcedTool(message: string): "searchCatalog" | undefined {
   const normalized = message.toLowerCase();
@@ -258,11 +271,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const chatInstruction = await storage.getInstructionBySlug(CHAT_SYSTEM_SLUG);
-      const chatSystemContent = chatInstruction?.content?.trim().length ? chatInstruction.content : DEFAULT_CHAT_SYSTEM_PROMPT;
+      const chatInstructionMessages: Message[] = [];
+      for (const entry of chatInstructionChain) {
+        const instruction = await storage.getInstructionBySlug(entry.slug);
+        if (!instruction) {
+          console.warn(`[INSTRUCTIONS] ${entry.slug} não encontrado. Usando fallback padrão.`);
+        }
 
-      if (!chatInstruction) {
-        console.warn(`[INSTRUCTIONS] ${CHAT_SYSTEM_SLUG} não encontrado. Usando prompt padrão.`);
+        const content = instruction?.content?.trim().length ? instruction.content : entry.fallback;
+        chatInstructionMessages.push({ role: "system", content });
       }
 
       let databaseQueried = false;
@@ -273,10 +290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let llmCalls = 1;
 
       const messages: Message[] = [
-        {
-          role: "system",
-          content: chatSystemContent,
-        },
+        ...chatInstructionMessages,
         {
           role: "user",
           content: message,

@@ -5,12 +5,13 @@ Explain how data enters, moves through, and exits the system, including interact
 
 ## High-level Flow
 1. The React SPA collects a Portuguese prompt and sends `POST /api/chat { message }`.
-2. Express logs the request, optionally forces the catalog tool based on keywords, and calls OpenRouter with the tool schema attached.
-3. When OpenRouter responds with tool calls, the server executes `searchFaqs` or `searchCatalog` via Drizzle and appends the structured results as system messages.
-4. A second OpenRouter call receives the enriched message history and returns the final answer.
-5. Express persists no state—responses plus debug metadata stream back to the SPA while SSE broadcasts log entries to the in-app terminal.
-6. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.
-7. Admins can download the `.xlsx` template via `GET /api/catalog/import/template` and upload batches through `POST /api/catalog/import` (multipart); the backend validates headers/rows, dedupes by nome+fabricante, and inserts in Drizzle chunks inside a transaction.
+2. Express injeta duas mensagens `system` ordenadas — `buscar-dados` (coleta de contexto) e `responder-usuario` (formatação da resposta) — antes de anexar a mensagem do usuário, registra o pedido e decide se deve forçar `searchCatalog` conforme palavras-chave.
+3. O backend chama o OpenRouter com o schema das tools e aguarda a primeira resposta; se houver `tool_calls`, executa `searchFaqs` e/ou `searchCatalog` via Drizzle, loga os parâmetros e anexa cada resultado como nova mensagem `system` após a mensagem do usuário.
+4. Quando `detectAgronomyIntent` dispara, uma pré-busca híbrida gera outro bloco `system` com o resumo do catálogo antes mesmo da primeira resposta da IA, marcando `databaseQueried=true` para fins de auditoria.
+5. A segunda chamada ao OpenRouter recebe todo o histórico (duas instruções, mensagem do usuário, pré-buscas e tool payloads) e retorna a resposta final.
+6. Express não persiste estado: a resposta final e o objeto `debug` voltam para o SPA enquanto o terminal consome `/api/logs/stream` com os mesmos eventos estruturados.
+7. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.
+8. Admins can download the `.xlsx` template via `GET /api/catalog/import/template` and upload batches through `POST /api/catalog/import` (multipart); the backend validates headers/rows, dedupes by nome+fabricante, and inserts in Drizzle chunks inside a transaction.
 
 ## Internal Movement
 - **Client → Server:** `client/src/pages/chat.tsx` uses `apiRequest` (React Query) to call the API and listens to `/api/logs/stream` via `LogTerminal`. `client/src/pages/catalog.tsx` now manages file uploads and lists with React Query keyed by catalog item ID.
