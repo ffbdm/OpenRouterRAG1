@@ -15,13 +15,14 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 2. [Ajuste Rag](./ajuste-rag.md)
 3. [Ajusteembeddings](./ajusteembeddings.md)
 4. [Catalogo Batelada](./catalogo-batelada.md)
-5. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
-6. [Log Return Ia Form Db](./log-return-ia-form-db.md)
-7. [One Shoot With Zero Tool Calls](./one-shoot-with-zero-tool-calls.md)
-8. [Rag Context Catalog](./rag-context-catalog.md)
-9. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
-10. [Rag System Hybrid](./rag-system-hybrid.md)
-11. [Ui Catalog](./ui-catalog.md)
+5. [Double Instructions](./double-instructions.md)
+6. [Habilitar Parsing No Backend](./habilitar-parsing-no-backend.md)
+7. [Log Return Ia Form Db](./log-return-ia-form-db.md)
+8. [One Shoot With Zero Tool Calls](./one-shoot-with-zero-tool-calls.md)
+9. [Rag Context Catalog](./rag-context-catalog.md)
+10. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
+11. [Rag System Hybrid](./rag-system-hybrid.md)
+12. [Ui Catalog](./ui-catalog.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
