@@ -49,7 +49,7 @@ import {
 import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
 import { InstructionsPanel } from "@/components/InstructionsPanel";
-import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Tag, Trash2, UploadCloud, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, UploadCloud, XCircle } from "lucide-react";
 
 const optionalText = z.preprocess(
   (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
@@ -84,6 +84,15 @@ type CatalogImportResult = {
   created: number;
   durationMs: number;
   sampleIds?: number[];
+};
+
+type CatalogAssistSuggestions = Partial<Pick<CatalogMutationPayload, "description" | "category" | "price" | "status" | "tags">>;
+type CatalogAssistResponse = {
+  suggestions: CatalogAssistSuggestions;
+  suggestedFields?: string[];
+  missingFields?: Array<keyof CatalogAssistSuggestions>;
+  model?: string;
+  message?: string;
 };
 
 const catalogImportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -422,6 +431,106 @@ function CatalogFormDialog({
     }
   }, [form, initialItem, open]);
 
+  const aiAssistMutation = useMutation({
+    mutationFn: async (payload: {
+      name: string;
+      manufacturer: string;
+      description: string;
+      category: string;
+      price: number | null;
+      tags: string[];
+    }) => {
+      const response = await apiRequest("POST", "/api/catalog/assist", payload);
+      return (await response.json()) as CatalogAssistResponse;
+    },
+    onSuccess: (data) => {
+      const suggestions = data.suggestions || {};
+      const current = form.getValues();
+      const updatedFields: string[] = [];
+
+      if (suggestions.description && !current.description.trim()) {
+        form.setValue("description", suggestions.description, { shouldDirty: true });
+        updatedFields.push("Descrição");
+      }
+
+      if (suggestions.category && !current.category.trim()) {
+        form.setValue("category", suggestions.category, { shouldDirty: true });
+        updatedFields.push("Categoria");
+      }
+
+      if (typeof suggestions.price === "number" && !form.getFieldState("price").isDirty) {
+        form.setValue("price", suggestions.price, { shouldDirty: true });
+        updatedFields.push("Preço");
+      }
+
+      if (Array.isArray(suggestions.tags) && suggestions.tags.length > 0) {
+        const existingTags = parseTagsInput(current.tagsText);
+        if (existingTags.length === 0) {
+          form.setValue("tagsText", suggestions.tags.join(", "), { shouldDirty: true });
+          updatedFields.push("Tags");
+        }
+      }
+
+      if (updatedFields.length === 0) {
+        toast({
+          title: "Nenhum campo atualizado",
+          description: data.message ?? "Os campos já estavam preenchidos ou a IA não trouxe sugestões novas.",
+        });
+        return;
+      }
+
+      const modelNote = data.model ? ` (modelo: ${data.model})` : "";
+      toast({
+        title: "Campos preenchidos com IA",
+        description: `Atualizado: ${updatedFields.join(", ")}${modelNote}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Não foi possível completar com IA",
+        description: error instanceof Error ? error.message : "Falha ao obter sugestões.",
+      });
+    },
+  });
+
+  const handleCompleteWithAi = () => {
+    const values = form.getValues();
+    const trimmedName = values.name.trim();
+    const trimmedManufacturer = values.manufacturer.trim();
+
+    if (!trimmedName) {
+      form.setError("name", { type: "manual", message: "Informe o nome para usar a IA." });
+    }
+
+    if (!trimmedManufacturer) {
+      form.setError("manufacturer", { type: "manual", message: "Informe o fabricante para usar a IA." });
+    }
+
+    if (!trimmedName || !trimmedManufacturer) {
+      toast({
+        variant: "destructive",
+        title: "Preencha Nome e Fabricante",
+        description: "Esses dois campos são obrigatórios para sugerir os demais.",
+      });
+      return;
+    }
+
+    const parsedTags = parseTagsInput(values.tagsText);
+    const price = form.getFieldState("price").isDirty && Number.isFinite(values.price)
+      ? Number(values.price)
+      : null;
+
+    aiAssistMutation.mutate({
+      name: trimmedName,
+      manufacturer: trimmedManufacturer,
+      description: values.description.trim(),
+      category: values.category.trim(),
+      price,
+      tags: parsedTags,
+    });
+  };
+
   const handleSubmit = (values: CatalogFormValues) => {
     const payload: CatalogMutationPayload = {
       name: values.name.trim(),
@@ -448,6 +557,28 @@ function CatalogFormDialog({
 
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(handleSubmit)}>
+            <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Completar campos com IA</p>
+                  <p className="text-xs text-muted-foreground">
+                    Use Nome e Fabricante para sugerir os demais campos. Campos já preenchidos não serão sobrescritos.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleCompleteWithAi}
+                  disabled={aiAssistMutation.isPending || isSubmitting}
+                >
+                  {aiAssistMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Completar com IA
+                </Button>
+              </div>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}

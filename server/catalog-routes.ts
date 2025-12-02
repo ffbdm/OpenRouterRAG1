@@ -2,7 +2,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { catalogPayloadSchema, statusFilterSchema } from "./catalog-validation";
+import { catalogPayloadSchema, statusFilterSchema, tagsSchema } from "./catalog-validation";
 import { storage, type IStorage } from "./storage";
 import {
   allowedCatalogFileMimeTypes,
@@ -14,6 +14,7 @@ import {
 } from "./catalog-file-storage";
 import { extractTextPreview } from "./catalog-file-preview";
 import { catalogImportLimits, catalogXlsxMimeType, generateCatalogTemplate, parseCatalogImport } from "./catalog-import";
+import { generateCatalogSuggestions } from "./catalog-ai-helper";
 
 const catalogQuerySchema = z.object({
   search: z.string().optional(),
@@ -26,6 +27,32 @@ const catalogIdSchema = z.object({
 
 const catalogFileIdSchema = z.object({
   fileId: z.coerce.number().int().positive(),
+});
+
+const assistPriceSchema = z.preprocess(
+  (value) => {
+    if (value == null || value === "") return null;
+    if (typeof value === "string") {
+      const normalized = value.replace(/R\$/gi, "").replace(/\s+/g, "").replace(",", ".");
+      return normalized;
+    }
+    return value;
+  },
+  z.number().nonnegative().max(100000).nullable(),
+);
+
+const optionalAssistText = z.preprocess(
+  (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
+  z.string().default(""),
+);
+
+const catalogAssistSchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome do item"),
+  manufacturer: z.string().trim().min(2, "Informe o fabricante"),
+  description: optionalAssistText,
+  category: optionalAssistText,
+  price: assistPriceSchema.optional(),
+  tags: tagsSchema,
 });
 
 const upload = multer({
@@ -156,6 +183,59 @@ export function registerCatalogRoutes(app: Express, options?: { storage?: IStora
     } catch (error) {
       console.error("[CATALOG_IMPORT] Erro ao importar planilha:", error);
       return res.status(500).json({ error: "Erro ao importar catálogo" });
+    }
+  });
+
+  router.post("/assist", async (req, res) => {
+    const parsed = catalogAssistSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return handleValidationError(res, parsed.error);
+    }
+
+    const { name, manufacturer, description, category, price, tags } = parsed.data;
+
+    const missingFields: Array<"description" | "category" | "price" | "tags"> = [];
+    if (!description.trim()) missingFields.push("description");
+    if (!category.trim()) missingFields.push("category");
+    if (price == null) missingFields.push("price");
+    if (!tags || tags.length === 0) missingFields.push("tags");
+
+    if (missingFields.length === 0) {
+      return res.json({
+        suggestions: {},
+        suggestedFields: [],
+        missingFields: [],
+        message: "Nenhum campo vazio para completar.",
+      });
+    }
+
+    try {
+      const result = await generateCatalogSuggestions(
+        { name, manufacturer, description, category, price, tags },
+        missingFields,
+      );
+
+      const suggestedFields = Object.entries(result.suggestions)
+        .filter(([, value]) => {
+          if (value == null) return false;
+          if (typeof value === "string") return Boolean(value.trim());
+          if (Array.isArray(value)) return value.length > 0;
+          return true;
+        })
+        .map(([key]) => key);
+
+      return res.json({
+        suggestions: result.suggestions,
+        suggestedFields,
+        missingFields,
+        model: result.model,
+        usage: result.usage,
+      });
+    } catch (error) {
+      console.error("[CATALOG] Erro ao gerar sugestões com IA:", error);
+      return res.status(503).json({
+        error: "Não foi possível obter sugestões de IA no momento.",
+      });
     }
   });
 
