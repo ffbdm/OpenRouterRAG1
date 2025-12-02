@@ -1021,12 +1021,6 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      <InstructionsPanel
-        scopes={["catalog"]}
-        title="Instruções do catálogo"
-        description="Revise o checklist de preenchimento antes de criar ou editar itens."
-      />
-
       <Card className="space-y-4 p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">

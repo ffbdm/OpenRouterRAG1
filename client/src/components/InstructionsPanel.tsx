@@ -70,10 +70,7 @@ export function InstructionsPanel({
     });
   }, [instructionsQuery.data]);
 
-  const effectiveScopes = useMemo(() => {
-    const unique = new Set<InstructionScope>(["global", ...scopes]);
-    return Array.from(unique);
-  }, [scopes]);
+  const effectiveScopes = useMemo(() => scopes, [scopes]);
 
   const filteredInstructions = useMemo(() => {
     const ready = instructionsQuery.data ?? [];

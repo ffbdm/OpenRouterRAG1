@@ -21,21 +21,9 @@ export default function InstructionsPage() {
 
       <div className="space-y-6">
         <InstructionsPanel
-          scopes={["global"]}
-          title="Instruções globais"
-          description="Aplicadas em todo o console e servem como princípios gerais."
-        />
-        <Separator />
-        <InstructionsPanel
           scopes={["chat"]}
           title="Prompts do chat"
           description="Afetam o comportamento da IA nas conversas. O fluxo agora possui duas etapas (buscar dados e responder o usuário), cada uma com sua instrução dedicada."
-        />
-        <Separator />
-        <InstructionsPanel
-          scopes={["catalog"]}
-          title="Diretrizes do catálogo"
-          description="Checklist de preenchimento e regras de edição exibidas para o time de catálogo."
         />
       </div>
     </div>
