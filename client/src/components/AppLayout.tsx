@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Bot, Boxes, NotebookPen } from "lucide-react";
+import { Bot, Boxes, NotebookPen, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import LogTerminal from "@/components/LogTerminal";
 
 type NavLink = {
   href: string;
@@ -81,6 +84,7 @@ function NavButton({ link, isActive, isMobile }: { link: NavLink; isActive: bool
 export default function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const isMobile = useIsMobile();
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -107,6 +111,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   isMobile={false}
                 />
               ))}
+              <button
+                onClick={() => setIsTerminalOpen(true)}
+                className={cn(
+                  "group inline-flex min-w-[100px] flex-col gap-1 rounded-lg border px-3 py-2 transition hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm bg-card text-foreground"
+                )}
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Terminal className="h-4 w-4" />
+                  <span>Logs</span>
+                </div>
+                <p className="text-xs leading-tight text-muted-foreground">
+                  Ver terminal
+                </p>
+              </button>
             </div>
           </div>
         </header>
@@ -129,9 +147,30 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 isMobile={true}
               />
             ))}
+            <button
+              onClick={() => setIsTerminalOpen(true)}
+              className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <Terminal className="h-5 w-5" />
+              <span className="text-[10px] font-medium">Logs</span>
+            </button>
           </div>
         </nav>
       )}
+
+      <Sheet open={isTerminalOpen} onOpenChange={setIsTerminalOpen}>
+        <SheetContent side={isMobile ? "bottom" : "right"} className={isMobile ? "h-[80vh]" : "w-[600px] sm:w-[540px]"}>
+          <SheetHeader>
+            <SheetTitle>Logs do Sistema</SheetTitle>
+            <SheetDescription>
+              Acompanhe as atividades do servidor em tempo real.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 h-[calc(100%-80px)]">
+             <LogTerminal className="h-full" />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export type LogEntry = {
   id: number;
@@ -17,7 +18,11 @@ const LEVEL_COLORS: Record<LogEntry["level"], string> = {
   error: "text-red-200",
 };
 
-export default function LogTerminal() {
+interface LogTerminalProps {
+  className?: string;
+}
+
+export default function LogTerminal({ className }: LogTerminalProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -59,8 +64,8 @@ export default function LogTerminal() {
   const toggleAutoScroll = () => setAutoScroll((prev) => !prev);
 
   return (
-    <Card className="p-4 bg-slate-950 text-slate-50 border-slate-800">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+    <Card className={cn("p-4 bg-slate-950 text-slate-50 border-slate-800 flex flex-col", className)}>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2 shrink-0">
         <div>
           <p className="text-sm font-semibold">Terminal em tempo real</p>
           <p className={`text-xs ${connected ? "text-emerald-300" : "text-red-300"}`}>
@@ -69,7 +74,7 @@ export default function LogTerminal() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={toggleAutoScroll}>
-            {autoScroll ? "Pausar scroll" : "Retomar scroll"}
+            {autoScroll ? "Pausar" : "Retomar"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleClear}>
             Limpar
@@ -78,7 +83,10 @@ export default function LogTerminal() {
       </div>
       <div
         ref={containerRef}
-        className="h-[32rem] overflow-y-auto rounded border border-slate-800 bg-black/60 font-mono text-xs"
+        className={cn(
+          "overflow-y-auto rounded border border-slate-800 bg-black/60 font-mono text-xs",
+          className ? "flex-1 min-h-0" : "h-[32rem]"
+        )}
       >
         {logs.length === 0 ? (
           <p className="p-4 text-slate-400">
