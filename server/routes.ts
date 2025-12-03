@@ -23,6 +23,13 @@ type ToolCall = {
   };
 };
 
+const DEFAULT_CHAT_MODEL = process.env.OPENROUTER_MODEL
+  || process.env.OPENROUTER_FALLBACK_MODEL;
+
+if (!DEFAULT_CHAT_MODEL) {
+  throw new Error("Defina OPENROUTER_MODEL ou OPENROUTER_FALLBACK_MODEL antes de iniciar o servidor.");
+}
+
 const catalogIntentKeywords = [
   "produto",
   "produtos",
@@ -379,7 +386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const requestBody = {
-        model: "x-ai/grok-4.1-fast:free",
+        model: DEFAULT_CHAT_MODEL,
         messages: messages,
         tools: tools,
         tool_choice: forcedTool
@@ -551,7 +558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "x-ai/grok-4.1-fast:free",
+          model: DEFAULT_CHAT_MODEL,
           messages: messages,
           temperature: 0.7,
         }),
