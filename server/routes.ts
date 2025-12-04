@@ -30,62 +30,8 @@ if (!DEFAULT_CHAT_MODEL) {
   throw new Error("Defina OPENROUTER_MODEL ou OPENROUTER_FALLBACK_MODEL antes de iniciar o servidor.");
 }
 
-const catalogIntentKeywords = [
-  "produto",
-  "produtos",
-  "catalogo",
-  "catálogo",
-  "preco",
-  "preço",
-  "loja",
-  "item",
-  "itens",
-  "fabricante",
-  "estoque",
-  "disponivel",
-  "disponível",
-  "precos",
-  "preços",
-  "comparar",
-  "comprar",
-];
-
-const genericProductPatterns = [
-  /quais\s+produtos/i,
-  /que\s+produtos/i,
-  /lista\w*\s+produtos/i,
-  /mostrar\s+produtos/i,
-  /produtos\s+voc[eê]\s+tem/i,
-  /produtos\s+dispon[ií]veis/i,
-];
-
-const agronomyKeywords = [
-  "agronomia",
-  "agro",
-  "fazenda",
-  "campo",
-  "fertilizante",
-  "fertilizantes",
-  "fertilização",
-  "foliar",
-  "foliares",
-  "defensivo",
-  "defensivos",
-  "soja",
-  "milho",
-  "sementes",
-  "cultivar",
-  "nutrição",
-  "nutricao",
-  "herbicida",
-  "fungicida",
-  "inseticida",
-  "adubo",
-  "adjuvante",
-];
-
 const defaultGatherInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather)
-  ?? "Você opera em duas etapas. Nesta etapa 1, concentre-se em levantar dados antes de responder ao usuário: (1) analise a pergunta e defina quais tools devem ser chamadas; use searchFaqs para processos/políticas e searchCatalog para produtos, fabricantes, preços e ingredientes agronômicos. (2) Sempre que houver termos de catálogo ou agronomia, chame searchCatalog com o texto completo da pergunta (adicione termos-chave apenas se necessário). (3) Resuma os resultados em português destacando nome do item, categoria, fabricante, preço, tags ou trechos úteis das FAQs. (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
+  ?? "Você opera em duas etapas. Nesta etapa 1, concentre-se em levantar dados antes de responder ao usuário: (1) analise a pergunta e decida quais tools devem ser chamadas; use searchFaqs para processos/políticas e searchCatalog para produtos, fabricantes, preços e ingredientes agronômicos. (2) Sempre que houver termos de catálogo ou dúvida sobre produtos, chame searchCatalog com o texto completo da pergunta; se não tiver certeza, prefira usar também searchFaqs para cobrir políticas. (3) Resuma os resultados em português destacando nome do item, categoria, fabricante, preço, tags ou trechos úteis das FAQs. (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
 const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond)
   ?? "Após concluir a etapa de coleta, use apenas os dados enviados como mensagens system para responder ao usuário. Estruture o retorno em português seguindo esta ordem: (1) Resumo da busca — cite quais fontes foram consultadas (FAQs, catálogo ou ambos) e a quantidade de itens relevantes. (2) Resposta principal — entregue a orientação solicitada citando nomes de produtos, fabricantes, preços ou trechos da FAQ que suportem a conclusão. (3) Próximos passos — sugira ações quando não houver dados suficientes (ex.: pedir mais detalhes ou direcionar para o time certo). Se nada foi encontrado, comunique isso claramente e proponha um próximo passo em vez de inventar. Mantenha tom profissional, use frases curtas e evite repetir a pergunta.";
 
@@ -100,29 +46,9 @@ const chatInstructionChain = [
   },
 ] as const;
 
-function detectForcedTool(message: string): "searchCatalog" | undefined {
-  const normalized = message.toLowerCase();
-  const shouldForceCatalog = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
-
-  return shouldForceCatalog ? "searchCatalog" : undefined;
-}
-
-function detectAgronomyIntent(message: string): boolean {
-  const normalized = message.toLowerCase();
-  const hasCatalogHint = catalogIntentKeywords.some((keyword) => normalized.includes(keyword));
-  const hasAgronomyHint = agronomyKeywords.some((keyword) => normalized.includes(keyword));
-  const looksLikeSku = /sku[-\s:]?\d{4,}/i.test(normalized) || /#\d{6,}/.test(normalized);
-
-  return (hasCatalogHint || hasAgronomyHint) && !looksLikeSku;
-}
-
 function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
   if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
   return Math.min(Math.max(1, Math.floor(rawLimit)), max);
-}
-
-function requiresProductClarification(message: string): boolean {
-  return genericProductPatterns.some((pattern) => pattern.test(message));
 }
 
 type ToolArguments = Record<string, unknown>;
@@ -264,20 +190,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[REQUEST] Mensagem do usuário:", message);
       console.log("========================================\n");
 
-      if (requiresProductClarification(message)) {
-        console.log("[ROUTER] Pergunta genérica sobre produtos - solicitando mais detalhes antes de consultar catálogo");
-
-        return res.json({
-          response: "Nosso catálogo é extenso. Pode me dizer categoria, fabricante ou faixa de preço para eu buscar os produtos certos?",
-          debug: {
-            databaseQueried: false,
-            faqsFound: 0,
-            catalogItemsFound: 0,
-            message: "ℹ️ Solicitadas mais informações antes de consultar o catálogo",
-          },
-        });
-      }
-
       const chatInstructionMessages: Message[] = [];
       for (const entry of chatInstructionChain) {
         const instruction = await storage.getInstructionBySlug(entry.slug);
@@ -303,26 +215,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content: message,
         },
       ];
-
-      if (detectAgronomyIntent(message)) {
-        console.log("[RAG] Intenção agronômica detectada - executando busca híbrida pré-chamada LLM");
-
-        hybridResult = await storage.searchCatalogHybrid(message, resolveLimit(undefined, 5));
-        logHybridStats("Pré-busca /api/chat", hybridResult);
-
-        databaseQueried = true;
-        ragSource = "hybrid";
-
-        if (hybridResult.results.length > 0) {
-          const hybridPayload = buildCatalogPayload(message, hybridResult);
-          messages.push({
-            role: "system",
-            content: hybridPayload,
-          });
-
-          catalogItemsFound = hybridResult.results.length;
-        }
-      }
 
       const tools = [
         {
@@ -379,19 +271,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[OPENROUTER] Primeira chamada - enviando mensagem com tools disponíveis");
 
-      const forcedTool = detectForcedTool(message);
-
-      if (forcedTool) {
-        console.log("[ROUTER] Forçando chamada inicial da tool:", forcedTool);
-      }
-
       const requestBody = {
         model: DEFAULT_CHAT_MODEL,
         messages: messages,
         tools: tools,
-        tool_choice: forcedTool
-          ? { type: "function", function: { name: forcedTool } }
-          : "auto",
+        tool_choice: "auto",
         temperature: 0.7,
       };
 

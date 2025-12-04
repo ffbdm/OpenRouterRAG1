@@ -9,7 +9,7 @@ This repository delivers a Retrieval-Augmented Generation (RAG) chat experience 
 - Primary code: TypeScript/TSX (React client + Express server), JSON config, Markdown docs
 - Persistence: Neon/Postgres via Drizzle ORM; catalog + FAQ tables live in `shared/schema.ts`
 - Instructions: tabela `system_instructions` (scopes global/chat/catalog + `order_index`) alimenta o painel da UI; o fluxo do chat consome duas mensagens `system` (`buscar-dados`, `responder-usuario`) antes do prompt do usuário
-- AI provider: OpenRouter (`x-ai/grok-4.1-fast:free`) called twice per user request (tool invocation + final answer)
+- AI provider: OpenRouter (`x-ai/grok-4.1-fast:free`) chamado pelo menos uma vez por requisição (auto tools) e uma segunda vez quando dados são recuperados
 - Deployment: Vercel-style build (`npm run build`) serving `dist/public` with bundled server entry in `dist/index.js`
 
 ## File Structure & Code Organization

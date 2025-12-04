@@ -6,7 +6,7 @@ The system is a single TypeScript workspace that bundles a Vite-powered React cl
 ## System Architecture Overview
 - **Topology:** Monorepo + monolith. Express owns HTTP ingress, persistence access, and AI orchestration. The React SPA is bundled alongside the API.
 - **Deployment:** `npm run build` emits `dist/public` for the client and `dist/index.js` for the server (esbuild). Vercel can serve the static assets while the Node handler runs on the same target.
-- **Request path:** The SPA posts `/api/chat` → Express logs request metadata → detects forced catalog usage, forwards the message to OpenRouter with function call metadata → handles tool callbacks (`searchFaqs`, `searchCatalog`) by querying Postgres → performs a second OpenRouter call with retrieved context → responds to the SPA and pushes log entries over `/api/logs/stream`.
+- **Request path:** The SPA posts `/api/chat` → Express logs request metadata → envia imediatamente a primeira chamada ao OpenRouter com tools `searchFaqs`/`searchCatalog` em modo `auto` → trata tool callbacks consultando Postgres → executa a segunda chamada com o contexto retornado → responde ao SPA e transmite logs via `/api/logs/stream`.
 
 ## Core System Components
 - **React SPA (`client/`):** Chat UI, log terminal, hooks, and shadcn UI primitives. Talks to the API via `apiRequest` and renders SSE logs.
@@ -25,7 +25,7 @@ The system is a single TypeScript workspace that bundles a Vite-powered React cl
 	- `POST /api/chat` — JSON body `{ message: string }` processed by `server/routes.ts`.
 	- `GET /api/logs/stream` — SSE endpoint consumed by `LogTerminal` for observability.
 - **Outbound:**
-	- `OpenRouter` — `https://openrouter.ai/api/v1/chat/completions` called twice per request; includes optional forced `tool_choice`.
+	- `OpenRouter` — `https://openrouter.ai/api/v1/chat/completions` usado em uma ou duas chamadas por requisição, sempre com tools em modo `auto`.
 	- `Neon/Postgres` — connection via `@neondatabase/serverless` websockets; queries executed through Drizzle.
 
 ## External Service Dependencies
@@ -35,7 +35,7 @@ The system is a single TypeScript workspace that bundles a Vite-powered React cl
 
 ## Key Decisions & Trade-offs
 - Kept a **single Express host** instead of splitting API/UI so SSE log streaming and prompt logging stay co-located.
-- Adopted **OpenRouter function calling** to defer routing decisions (FAQ vs catalog) to the LLM while still retaining forced-tool hooks for generic catalog prompts.
+- Adopted **OpenRouter function calling** to defer routing decisions (FAQ vs catalog) to the LLM; heurísticas de força de tool foram removidas para simplificar o fluxo e depender apenas de instruções no prompt.
 - **Text normalization + tokenization** (documented in `plans/searchFaqsImprovement.prompt.md`) was chosen over Postgres full-text search for now to avoid migrations/extensions while still improving recall.
 - SSE logging replicates backend insights inside the SPA to reduce context switching; the trade-off is tighter coupling between UI and backend log schema.
 
@@ -62,7 +62,7 @@ sequenceDiagram
 
 ## Risks & Constraints
 - **LLM dependency:** The workflow requires two sequential OpenRouter calls; latency spikes will block responses, so consider streaming results or caching when scaling.
-- **Tool opt-out:** If the LLM skips tool usage, users rely solely on model priors. The router mitigates this by forcing catalog lookups on keyword triggers, but FAQs still depend on AI behavior.
+- **Tool opt-out:** If the LLM skips tool usage, users rely solely on model priors; atualmente o prompt incentiva buscas, mas não há heurística forçada para cobrir misses.
 - **Database availability:** Neon credentials must allow websocket access; local development fails early if `DATABASE_URL` is missing.
 - **Ob observability gap:** SSE logs are ephemeral. Persist important incidents elsewhere if compliance requires retention.
 

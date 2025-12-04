@@ -5,10 +5,10 @@ Explain how data enters, moves through, and exits the system, including interact
 
 ## High-level Flow
 1. The React SPA collects a Portuguese prompt and sends `POST /api/chat { message }`.
-2. Express injeta duas mensagens `system` ordenadas — `buscar-dados` (coleta de contexto) e `responder-usuario` (formatação da resposta) — antes de anexar a mensagem do usuário, registra o pedido e decide se deve forçar `searchCatalog` conforme palavras-chave.
-3. O backend chama o OpenRouter com o schema das tools e aguarda a primeira resposta; se houver `tool_calls`, executa `searchFaqs` e/ou `searchCatalog` via Drizzle, loga os parâmetros e anexa cada resultado como nova mensagem `system` após a mensagem do usuário.
-4. Quando `detectAgronomyIntent` dispara, uma pré-busca híbrida gera outro bloco `system` com o resumo do catálogo antes mesmo da primeira resposta da IA, marcando `databaseQueried=true` para fins de auditoria.
-5. A segunda chamada ao OpenRouter recebe todo o histórico (duas instruções, mensagem do usuário, pré-buscas e tool payloads) e retorna a resposta final.
+2. Express injeta duas mensagens `system` ordenadas — `buscar-dados` (coleta de contexto) e `responder-usuario` (formatação da resposta) — antes de anexar a mensagem do usuário e enviar imediatamente a primeira chamada ao OpenRouter com tools `searchFaqs`/`searchCatalog` em modo `auto` (sem heurísticas ou pré-buscas).
+3. O backend aguarda a primeira resposta; se houver `tool_calls`, executa `searchFaqs` e/ou `searchCatalog` via Drizzle, loga os parâmetros e anexa cada resultado como nova mensagem `system` após a mensagem do usuário.
+4. Se nenhuma tool for chamada, o fluxo encerra na primeira resposta (`llmCalls=1`) e o debug indica `databaseQueried=false`; o cliente ainda recebe os logs da decisão.
+5. Quando há dados recuperados, uma segunda chamada ao OpenRouter recebe todo o histórico (duas instruções, mensagem do usuário e tool payloads) e retorna a resposta final.
 6. Express não persiste estado: a resposta final e o objeto `debug` voltam para o SPA enquanto o terminal consome `/api/logs/stream` com os mesmos eventos estruturados.
 7. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.
 8. Admins can download the `.xlsx` template via `GET /api/catalog/import/template` and upload batches through `POST /api/catalog/import` (multipart); the backend validates headers/rows, dedupes by nome+fabricante, and inserts in Drizzle chunks inside a transaction.
@@ -31,7 +31,7 @@ Explain how data enters, moves through, and exits the system, including interact
 - **In-app terminal:** `/api/logs/stream` replays buffered entries so QA can see OpenRouter payloads, tool invocations, and DB counts without SSH.
 - **Tool payload tracing:** `server/routes.ts` usa `logToolPayload` para registrar exatamente qual conteúdo dos resultados das funções (`searchFaqs`, `searchCatalog`) é devolvido para a IA, incluindo argumentos resolvidos e prévias truncadas do contexto enviado.
 - **Error surfacing:** Any exception in `/api/chat` emits a 500 with `details` plus a console stack trace. There is no retry/backoff yet; operators should monitor for repeated OpenRouter or Neon failures via the SSE feed. Importações em lote logam `[CATALOG_IMPORT] start/parsed/created` e o conjunto inicial de `rowErrors` para auditoria.
-- **Safeguards:** Catalog queries force tool usage when keywords match, reducing the chance of an LLM hallucination. Future improvements could auto-call `searchFaqs` if the model refuses.
+- **Safeguards:** O prompt de coleta incentiva o uso das tools (catálogo e FAQ) e o log de `tool_calls` ajuda a identificar quando o modelo decide responder sem consultar dados; sem heurísticas forçadas, o monitoramento deve checar quedas de recall.
 
 <!-- agent-readonly:guidance -->
 ## AI Update Checklist

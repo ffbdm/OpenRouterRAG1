@@ -26,7 +26,7 @@ Collect the scripts, automation, and editor settings that keep contributors effi
 ## Productivity Tips
 - Keep a `.env.local` with separate keys for dev vs. demo to avoid rotating secrets after sharing logs.
 - Tail `/api/logs/stream` in the browser while also watching the terminal; they expose different truncation levels.
-- When debugging OpenRouter payloads, temporarily set `tool_choice` to a specific function to reproduce forced execution paths.
+- When debugging OpenRouter payloads, você pode temporariamente definir `tool_choice` para uma função específica (runtime usa `auto`); isso ajuda a reproduzir caminhos de tool mesmo sem heurísticas.
 - Capture manual QA steps in your PR body so AI agents can replay them quickly during future regression passes.
 
 <!-- agent-readonly:guidance -->
