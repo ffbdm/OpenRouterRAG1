@@ -87,9 +87,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="h-[100dvh] bg-background text-foreground flex flex-col overflow-hidden">
       {!isMobile && (
-        <header className="border-b bg-card/50 backdrop-blur">
+        <header className="border-b bg-card/50 backdrop-blur shrink-0">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-2 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
@@ -130,11 +130,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </header>
       )}
 
-      <main className={cn("flex-1", isMobile ? "pb-16" : "pb-10")}>{children}</main>
+      <main className={cn("flex-1 overflow-hidden", isMobile ? "pb-16" : "pb-10")}>{children}</main>
 
       {isMobile && (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="flex h-16 items-center justify-around px-4">
+        <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 h-16">
+          <div className="flex h-full items-center justify-around px-4">
             {links.map((link) => (
               <NavButton
                 key={link.href}

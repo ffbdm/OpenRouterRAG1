@@ -78,10 +78,10 @@ export default function ChatPage() {
 
   return (
     <div className={cn(
-      "flex flex-col max-w-7xl mx-auto",
-      isMobile ? "h-[calc(100vh-4rem)] p-2" : "min-h-screen p-6 gap-6"
+      "flex flex-col max-w-7xl mx-auto h-full",
+      isMobile ? "p-2" : "p-6 gap-6"
     )}>
-      <header className={cn("border-b", isMobile ? "pb-2 mb-2" : "pb-4 mb-6")}>
+      <header className={cn("border-b shrink-0", isMobile ? "pb-2 mb-2" : "pb-4 mb-6")}>
         <h1 className={cn("font-semibold text-foreground", isMobile ? "text-lg" : "text-xl")}>
           {isMobile ? "Chat FAQ" : "Assistente de FAQ com RAG"}
         </h1>
@@ -96,14 +96,14 @@ export default function ChatPage() {
           </>
         )}
       </header>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(600px,1.5fr)] flex-1 items-start h-full overflow-hidden">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(600px,1.5fr)] flex-1 items-start min-h-0 overflow-hidden">
         <section className={cn(
-          "flex flex-col rounded-lg bg-card",
-          isMobile ? "h-full border-0 shadow-none" : "border p-4 shadow-sm"
+          "flex flex-col rounded-lg bg-card h-full min-h-0",
+          isMobile ? "border-0 shadow-none" : "border p-4 shadow-sm"
         )}>
           <div className={cn(
-            "flex-1 overflow-y-auto flex flex-col gap-4 pr-2",
-            isMobile ? "pb-24" : "mb-4"
+            "flex-1 overflow-y-auto flex flex-col gap-4 pr-2 min-h-0",
+            isMobile ? "mb-2" : "mb-4"
           )}>
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
