@@ -31,7 +31,7 @@ if (!DEFAULT_CHAT_MODEL) {
 }
 
 const defaultGatherInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather)
-  ?? "Você opera em duas etapas. Nesta etapa 1 é obrigatório coletar dados antes de responder: (1) analise a pergunta e chame pelo menos uma tool; use searchCatalog para qualquer pedido de produtos/cultivo/fabricante/preços e use searchFaqs para políticas, processos ou quando houver dúvida. (2) Se não tiver certeza, chame searchCatalog E searchFaqs; nunca avance sem pelo menos uma tool, exceto em saudações fora de domínio. (3) Envie a pergunta completa como query e resuma os resultados em português (nome, categoria, fabricante, preço, tags ou trechos úteis das FAQs). (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
+  ?? "Você opera em duas etapas. Nesta etapa 1 é obrigatório coletar dados antes de responder: (1) analise a pergunta e chame pelo menos uma tool; use searchCatalog para qualquer pedido de produtos/cultivo/fabricante/preços e use searchFaqs para políticas, processos ou quando houver dúvida. (2) Se não tiver certeza, chame searchCatalog E searchFaqs; nunca avance sem pelo menos uma tool. (3) Cumprimentos ou mensagens sem intenção clara (ex.: 'oi', 'olá', 'bom dia', 'tudo bem?') não devem acionar tools; responda curto e peça o objetivo antes de buscar. (4) Envie a pergunta completa como query e resuma os resultados em português (nome, categoria, fabricante, preço, tags ou trechos úteis das FAQs). (5) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
 const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond)
   ?? "Após concluir a etapa de coleta, use apenas os dados enviados como mensagens system para responder ao usuário. Estruture o retorno em português seguindo esta ordem: (1) Resumo da busca — cite quais fontes foram consultadas (FAQs, catálogo ou ambos) e a quantidade de itens relevantes. (2) Resposta principal — entregue a orientação solicitada citando nomes de produtos, fabricantes, preços ou trechos da FAQ que suportem a conclusão. (3) Próximos passos — sugira ações quando não houver dados suficientes (ex.: pedir mais detalhes ou direcionar para o time certo). Se nada foi encontrado, comunique isso claramente e proponha um próximo passo em vez de inventar. Mantenha tom profissional, use frases curtas e evite repetir a pergunta.";
 
@@ -50,7 +50,14 @@ const toolUsageReminder = [
   "Regras obrigatórias para usar tools:",
   "- Sempre chame searchCatalog para pedidos de produtos, cultivo, fabricantes ou preços, enviando a pergunta completa na query.",
   "- Chame searchFaqs para políticas/processos ou quando não tiver certeza; se restar dúvida, chame as duas tools.",
-  "- Não responda sem pelo menos uma tool, exceto em saudações rápidas fora do domínio. Se nada for encontrado, informe isso claramente.",
+  "- Não responda sem pelo menos uma tool. Se nada for encontrado, informe isso claramente.",
+  "- Cumprimentos sem intenção clara (ex.: 'oi', 'olá', 'bom dia', 'boa tarde', 'e aí') não devem acionar nenhuma tool; responda breve e peça o que a pessoa quer buscar.",
+].join("\n");
+
+const finalResponseReminder = [
+  "Agora gere a resposta final ao usuário usando apenas os dados das mensagens system (FAQ/Catálogo).",
+  "Não descreva escolhas de ferramenta, não devolva 'call:' ou 'tool_choice' e não repita instruções internas.",
+  "Estruture: (1) resumo da busca e quantidade; (2) resposta com nomes de produtos/trechos; (3) próximos passos claros.",
 ].join("\n");
 
 function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
@@ -443,6 +450,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       llmCalls = 2;
 
       console.log("[OPENROUTER] Segunda chamada - gerando resposta final");
+
+      messages.push({ role: "system", content: finalResponseReminder });
 
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
