@@ -31,7 +31,7 @@ if (!DEFAULT_CHAT_MODEL) {
 }
 
 const defaultGatherInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather)
-  ?? "Você opera em duas etapas. Nesta etapa 1, concentre-se em levantar dados antes de responder ao usuário: (1) analise a pergunta e decida quais tools devem ser chamadas; use searchFaqs para processos/políticas e searchCatalog para produtos, fabricantes, preços e ingredientes agronômicos. (2) Sempre que houver termos de catálogo ou dúvida sobre produtos, chame searchCatalog com o texto completo da pergunta; se não tiver certeza, prefira usar também searchFaqs para cobrir políticas. (3) Resuma os resultados em português destacando nome do item, categoria, fabricante, preço, tags ou trechos úteis das FAQs. (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
+  ?? "Você opera em duas etapas. Nesta etapa 1 é obrigatório coletar dados antes de responder: (1) analise a pergunta e chame pelo menos uma tool; use searchCatalog para qualquer pedido de produtos/cultivo/fabricante/preços e use searchFaqs para políticas, processos ou quando houver dúvida. (2) Se não tiver certeza, chame searchCatalog E searchFaqs; nunca avance sem pelo menos uma tool, exceto em saudações fora de domínio. (3) Envie a pergunta completa como query e resuma os resultados em português (nome, categoria, fabricante, preço, tags ou trechos úteis das FAQs). (4) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.";
 const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond)
   ?? "Após concluir a etapa de coleta, use apenas os dados enviados como mensagens system para responder ao usuário. Estruture o retorno em português seguindo esta ordem: (1) Resumo da busca — cite quais fontes foram consultadas (FAQs, catálogo ou ambos) e a quantidade de itens relevantes. (2) Resposta principal — entregue a orientação solicitada citando nomes de produtos, fabricantes, preços ou trechos da FAQ que suportem a conclusão. (3) Próximos passos — sugira ações quando não houver dados suficientes (ex.: pedir mais detalhes ou direcionar para o time certo). Se nada foi encontrado, comunique isso claramente e proponha um próximo passo em vez de inventar. Mantenha tom profissional, use frases curtas e evite repetir a pergunta.";
 
@@ -45,6 +45,13 @@ const chatInstructionChain = [
     fallback: defaultRespondInstruction,
   },
 ] as const;
+
+const toolUsageReminder = [
+  "Regras obrigatórias para usar tools:",
+  "- Sempre chame searchCatalog para pedidos de produtos, cultivo, fabricantes ou preços, enviando a pergunta completa na query.",
+  "- Chame searchFaqs para políticas/processos ou quando não tiver certeza; se restar dúvida, chame as duas tools.",
+  "- Não responda sem pelo menos uma tool, exceto em saudações rápidas fora do domínio. Se nada for encontrado, informe isso claramente.",
+].join("\n");
 
 function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
   if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
@@ -211,6 +218,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messages: Message[] = [
         ...chatInstructionMessages,
         {
+          role: "system",
+          content: toolUsageReminder,
+        },
+        {
           role: "user",
           content: message,
         },
@@ -221,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "function" as const,
           function: {
             name: "searchFaqs",
-            description: "Busca perguntas e respostas frequentes no banco de dados PostgreSQL.",
+            description: "Busca perguntas e respostas frequentes no banco de dados PostgreSQL. Use para políticas/processos e sempre que houver dúvida antes de responder.",
             parameters: {
               type: "object",
               properties: {
@@ -243,7 +254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "function" as const,
           function: {
             name: "searchCatalog",
-            description: "Consulta híbrida (vetorial + lexical) dos itens ativos do catálogo (nome, descrição, categoria, fabricante, preço e tags).",
+            description: "Consulta híbrida (vetorial + lexical) dos itens ativos do catálogo (nome, descrição, categoria, fabricante, preço e tags). Obrigatório para pedidos sobre produtos, fabricantes, preços ou cultivo.",
             parameters: {
               type: "object",
               properties: {
@@ -424,7 +435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ragSource: "none",
             hybrid: undefined,
             llmCalls,
-            message: "⚠️ Banco NÃO foi consultado para esta pergunta (fluxo de uma chamada)",
+            message: "⚠️ Nenhuma tool foi chamada; banco NÃO consultado (fluxo de uma chamada) — revise instruções se não era esperado",
           },
         });
       }
