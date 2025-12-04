@@ -24,7 +24,8 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 11. [Rag Context Catalog](./rag-context-catalog.md)
 12. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
 13. [Rag System Hybrid](./rag-system-hybrid.md)
-14. [Ui Catalog](./ui-catalog.md)
+14. [Simplify Flow Rag](./simplify-flow-rag.md)
+15. [Ui Catalog](./ui-catalog.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
