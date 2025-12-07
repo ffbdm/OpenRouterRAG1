@@ -405,6 +405,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { role: "user", content: userAnswerPayload },
       ];
 
+      console.log("[DEBUG] Mensagens enviadas para segunda chamada:");
+      answerMessages.forEach((msg, idx) => {
+        console.log(`  ${idx + 1}. Role: ${msg.role}`);
+        console.log(`     Content: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`);
+      });
+
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
