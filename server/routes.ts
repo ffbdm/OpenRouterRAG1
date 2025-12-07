@@ -167,10 +167,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("OPENROUTER_API_KEY não configurada. Verifique as variáveis de ambiente.");
       }
 
-      const classificationModel = process.env.OPENROUTER_MODEL_CLASSIFY || DEFAULT_CHAT_MODEL;
+      const classificationModelsToTry = Array.from(new Set([
+        process.env.OPENROUTER_MODEL_CLASSIFY,
+        process.env.OPENROUTER_MODEL_CLASSIFY_FALLBACK,
+        DEFAULT_CHAT_MODEL,
+      ].filter(Boolean)));
       const answerModel = process.env.OPENROUTER_MODEL_ANSWER || DEFAULT_CHAT_MODEL;
       if (!process.env.OPENROUTER_MODEL_CLASSIFY) {
-        console.warn("[WARN] OPENROUTER_MODEL_CLASSIFY não definida; usando modelo padrão para classificação.");
+        console.warn("[WARN] OPENROUTER_MODEL_CLASSIFY não definida; usando fallback configurado ou modelo padrão para classificação.");
       }
       if (!process.env.OPENROUTER_MODEL_ANSWER) {
         console.warn("[WARN] OPENROUTER_MODEL_ANSWER não definida; usando modelo padrão para a resposta.");
@@ -182,7 +186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : defaultRespondInstruction;
 
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
-      console.log("[MODELS] classify:", classificationModel, "| answer:", answerModel);
+      console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
       const classificationMessages: Message[] = [
         { role: "system", content: defaultClassificationInstruction },
@@ -208,62 +212,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       };
 
-      const classifyResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
-          "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: classificationModel,
-          messages: classificationMessages,
-          temperature: 0,
-          // Espaço para modelos que gastam tokens em reasoning antes do conteúdo JSON.
-          max_tokens: 256,
-          response_format: classificationResponseFormat,
-        }),
-      });
+      let classifyData: unknown;
+      let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
+      let classificationModelUsed: string | undefined;
+      let rawIntent = "";
 
-      if (!classifyResponse.ok) {
-        const errorBody = await classifyResponse.text();
-        console.log("[ERROR] Classification status:", classifyResponse.status);
-        console.log("[ERROR] Classification body:", errorBody);
-        throw new Error(`OpenRouter API error (classify): ${classifyResponse.status} ${classifyResponse.statusText} - ${errorBody}`);
-      }
+      for (const [index, model] of classificationModelsToTry.entries()) {
+        const hasNextModel = index < classificationModelsToTry.length - 1;
+        console.log(`[OPENROUTER] Chamada de classificação iniciada (model=${model})`);
 
-      const classifyData = await classifyResponse.json();
-      const classifyMessage = classifyData.choices?.[0]?.message ?? {};
-      const rawContent = typeof classifyMessage.content === "string" ? classifyMessage.content : "";
-
-      // Tenta extrair JSON quando response_format é respeitado; senão, usa o conteúdo direto.
-      let rawIntent = rawContent;
-      if (rawContent.trim().startsWith("{")) {
         try {
-          const parsed = JSON.parse(rawContent);
-          if (parsed && typeof parsed.intent === "string") {
-            rawIntent = parsed.intent;
+          const classifyResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+              "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              messages: classificationMessages,
+              temperature: 0,
+              // Espaço para modelos que gastam tokens em reasoning antes do conteúdo JSON.
+              max_tokens: 256,
+              response_format: classificationResponseFormat,
+            }),
+          });
+
+          if (!classifyResponse.ok) {
+            const errorBody = await classifyResponse.text();
+            console.log(`[ERROR] Classification status (${model}):`, classifyResponse.status);
+            console.log(`[ERROR] Classification body (${model}):`, errorBody);
+
+            if (hasNextModel) {
+              console.warn(`[CLASSIFY] Tentando fallback de classificação: ${classificationModelsToTry[index + 1]}`);
+              continue;
+            }
+
+            throw new Error(`OpenRouter API error (classify): ${classifyResponse.status} ${classifyResponse.statusText} - ${errorBody}`);
           }
+
+          const classifyJson = await classifyResponse.json();
+          const classifyMessage = classifyJson.choices?.[0]?.message ?? {};
+          const rawContent = typeof classifyMessage.content === "string" ? classifyMessage.content : "";
+
+          // Tenta extrair JSON quando response_format é respeitado; senão, usa o conteúdo direto.
+          let candidateIntent = rawContent;
+          if (rawContent.trim().startsWith("{")) {
+            try {
+              const parsed = JSON.parse(rawContent);
+              if (parsed && typeof parsed.intent === "string") {
+                candidateIntent = parsed.intent;
+              }
+            } catch (error) {
+              console.warn("[CLASSIFY] Falha ao fazer parse do JSON de intenção:", error);
+            }
+          }
+
+          classifyData = classifyJson;
+          classifyResponseMeta = {
+            status: classifyResponse.status,
+            requestId: classifyResponse.headers.get("x-request-id"),
+          };
+          rawIntent = candidateIntent;
+          classificationModelUsed = model;
+
+          if (!candidateIntent.trim() && hasNextModel) {
+            console.warn(`[CLASSIFY] Conteúdo vazio retornado pelo modelo de classificação (${model}); tentando fallback ${classificationModelsToTry[index + 1]}.`);
+            classificationModelUsed = undefined;
+            continue;
+          }
+
+          break;
         } catch (error) {
-          console.warn("[CLASSIFY] Falha ao fazer parse do JSON de intenção:", error);
+          console.error(`[CLASSIFY] Erro ao chamar modelo ${model}:`, error);
+          if (hasNextModel) {
+            console.warn(`[CLASSIFY] Tentando fallback de classificação: ${classificationModelsToTry[index + 1]}`);
+            continue;
+          }
+          throw error;
         }
       }
 
+      if (!classificationModelUsed) {
+        throw new Error("Não foi possível classificar a intenção com os modelos configurados.");
+      }
+
       if (!rawIntent.trim()) {
-        console.warn("[CLASSIFY] Conteúdo vazio retornado pelo modelo de classificação.");
+        console.warn(`[CLASSIFY] Conteúdo vazio retornado pelo modelo de classificação (${classificationModelUsed}).`);
         console.warn("[CLASSIFY] Resposta completa:", JSON.stringify({
-          id: classifyData.id,
-          model: classifyData.model,
-          choices: classifyData.choices,
-          usage: classifyData.usage,
-          status: classifyResponse.status,
-          requestId: classifyResponse.headers.get("x-request-id"),
+          id: (classifyData as Record<string, unknown> | undefined)?.id,
+          model: (classifyData as Record<string, unknown> | undefined)?.model,
+          choices: (classifyData as Record<string, unknown> | undefined)?.choices,
+          usage: (classifyData as Record<string, unknown> | undefined)?.usage,
+          status: classifyResponseMeta?.status,
+          requestId: classifyResponseMeta?.requestId,
         }, null, 2));
       }
       const intent: ChatIntent = normalizeIntent(rawIntent);
 
-      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}")`);
+      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed})`);
+      console.log("[MODELS] classify usado:", classificationModelUsed, "| answer:", answerModel);
 
       const searchPlan = planSearches(intent);
       console.log(`[ROUTING] Tools planejadas: ${searchPlan.usedTools.join(", ") || "nenhuma"} | llmCalls=${searchPlan.llmCalls}`);
@@ -386,10 +436,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           intent,
           classification: {
             raw: rawIntent,
-            model: classificationModel,
+            model: classificationModelUsed,
           },
           models: {
-            classify: classificationModel,
+            classify: classificationModelUsed,
             answer: answerModel,
           },
           databaseQueried,
