@@ -1,4 +1,4 @@
-# OpenRouterRAG
+# AgroRemoto
 
 Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRouter, Express e Vite.
 

@@ -102,7 +102,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">
-                  OpenRouter RAG
+                  AgroRemoto
                 </h1>
               </div>
             </div>
