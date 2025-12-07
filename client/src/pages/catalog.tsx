@@ -572,15 +572,17 @@ export default function CatalogPage() {
                   <div className="flex-1 p-5 flex flex-col md:flex-row gap-4 md:items-center">
                     {/* Main Info */}
                     <div className="flex-1 min-w-0 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-lg text-foreground truncate">{item.name}</h3>
-                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-normal text-muted-foreground bg-muted/50 border-0">
-                          {item.manufacturer || "N/A"}
-                        </Badge>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-lg text-foreground line-clamp-2 leading-tight" title={item.name}>
+                          {item.name}
+                        </h3>
                       </div>
                       <p className="text-sm text-muted-foreground line-clamp-2 md:line-clamp-1">{item.description || "Sem descrição..."}</p>
 
                       <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-normal text-muted-foreground bg-muted/50 border-0">
+                          {item.manufacturer || "N/A"}
+                        </Badge>
                         <Badge variant="outline" className="text-xs border-primary/20 text-primary bg-primary/5">
                           {item.category || "Geral"}
                         </Badge>
@@ -595,7 +597,7 @@ export default function CatalogPage() {
 
                     {/* Price & Actions */}
                     <div className="flex items-center justify-between md:justify-end gap-6 md:min-w-[200px] md:pl-6 md:border-l md:border-white/5">
-                      <div className="text-right">
+                      <div className="text-right whitespace-nowrap">
                         <p className="text-sm text-muted-foreground">Preço</p>
                         <p className="text-xl font-bold font-display">{formatPriceBRL(item.price)}</p>
                       </div>
