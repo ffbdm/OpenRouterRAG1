@@ -327,7 +327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let hybridResult: CatalogHybridSearchResult | undefined;
 
       const contextSections: string[] = [
-        `Mensagem do usuário: """${message}"""`,
+        "Contexto do chat com o usuário (futuro): nenhum histórico carregado neste fluxo.",
       ];
 
       if (searchPlan.runFaq) {
@@ -408,7 +408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] Mensagens enviadas para segunda chamada:");
       answerMessages.forEach((msg, idx) => {
         console.log(`  ${idx + 1}. Role: ${msg.role}`);
-        console.log(`     Content: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`);
+        console.log(`     Content: ${msg.content}`);
       });
 
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
