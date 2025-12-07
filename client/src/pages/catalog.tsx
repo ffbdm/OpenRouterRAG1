@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -48,7 +49,7 @@ import {
 } from "@/lib/catalog";
 import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
-import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, UploadCloud, XCircle, Package, Search, Filter, MoreHorizontal } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, UploadCloud, XCircle, Package, Search, Filter, MoreHorizontal, LayoutGrid, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -445,6 +446,7 @@ function CatalogFormDialog({
 export default function CatalogPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<CatalogStatusFilter>("ativo");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
@@ -514,16 +516,40 @@ export default function CatalogPage() {
             className="pl-9 bg-black/5 border-black/5 dark:bg-white/5 dark:border-white/10 rounded-xl"
           />
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={status} onValueChange={(v) => setStatus(v as CatalogStatusFilter)}>
-            <SelectTrigger className="w-[140px] bg-transparent border-0 ring-0 shadow-none"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {statusFilters.map(sf => <SelectItem key={sf.value} value={sf.value}>{sf.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <div className="h-4 w-px bg-border mx-2" />
-          <span className="text-sm text-muted-foreground whitespace-nowrap">
+        <div className="flex items-center gap-4 w-full md:w-auto">
+          {/* View Toggle */}
+          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border/50">
+            <Button
+              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-8 w-8 rounded-md"
+              onClick={() => setViewMode('grid')}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-8 w-8 rounded-md"
+              onClick={() => setViewMode('table')}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="h-6 w-px bg-border hidden md:block" />
+
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={status} onValueChange={(v) => setStatus(v as CatalogStatusFilter)}>
+              <SelectTrigger className="w-[140px] bg-transparent border-0 ring-0 shadow-none"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {statusFilters.map(sf => <SelectItem key={sf.value} value={sf.value}>{sf.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <span className="text-sm text-muted-foreground whitespace-nowrap px-2">
             {items.length} itens
           </span>
         </div>
@@ -542,6 +568,64 @@ export default function CatalogPage() {
             <p className="text-xl font-medium">Nenhum item encontrado</p>
             <p className="text-sm text-muted-foreground">Tente ajustar seus filtros ou crie um novo item.</p>
           </div>
+        ) : viewMode === 'table' ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="rounded-2xl border border-white/10 overflow-hidden glass-card"
+          >
+            <Table>
+              <TableHeader className="bg-muted/30">
+                <TableRow className="hover:bg-transparent border-white/10">
+                  <TableHead className="w-[300px]">Item</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead>Fabricante</TableHead>
+                  <TableHead>Preço</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.id} className="hover:bg-muted/20 border-white/5 transition-colors">
+                    <TableCell>
+                      <div className="font-medium text-foreground">{item.name}</div>
+                      <p className="text-xs text-muted-foreground line-clamp-1">{item.description}</p>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{item.category}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{item.manufacturer}</TableCell>
+                    <TableCell className="text-sm font-semibold">{formatPriceBRL(item.price)}</TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === "ativo" ? "outline" : "secondary"} className={cn(
+                        item.status === 'ativo' ? "border-green-500/30 text-green-500 bg-green-500/5" : "text-muted-foreground"
+                      )}>
+                        {statusLabel(item.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => { setFormMode("edit"); setEditingItem(item); setFormOpen(true); }}>
+                            <Pencil className="mr-2 h-4 w-4" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setFilesItem(item); setFilesDialogOpen(true); }}>
+                            <Paperclip className="mr-2 h-4 w-4" /> Arquivos
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Remover
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </motion.div>
         ) : (
           <motion.div
             layout
