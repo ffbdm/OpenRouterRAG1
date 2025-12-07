@@ -346,51 +346,51 @@ function CatalogFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !isSubmitting && onOpenChange(val)}>
-      <DialogContent className="max-w-3xl glass border-white/10 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl bg-background/95 backdrop-blur-xl border-border shadow-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl font-display">{mode === "create" ? "Novo Item" : "Editar Item"}</DialogTitle>
-          <DialogDescription>Preencha os dados do produto abaixo.</DialogDescription>
+          <DialogTitle className="text-2xl font-display font-bold text-foreground">{mode === "create" ? "Novo Item" : "Editar Item"}</DialogTitle>
+          <DialogDescription className="text-base text-muted-foreground">Preencha os dados do produto abaixo.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form className="space-y-5 mt-4" onSubmit={form.handleSubmit(handleSubmit)}>
-            <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 flex items-center justify-between">
+          <form className="space-y-6 mt-4" onSubmit={form.handleSubmit(handleSubmit)}>
+            <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-primary">Assistente de IA</p>
+                <p className="text-sm font-bold text-primary">Assistente de IA</p>
                 <p className="text-xs text-muted-foreground">Preencha Nome e Fabricante para autocompletar o resto.</p>
               </div>
-              <Button type="button" size="sm" onClick={handleCompleteWithAi} disabled={aiAssistMutation.isPending} className="glass-button">
+              <Button type="button" size="sm" onClick={handleCompleteWithAi} disabled={aiAssistMutation.isPending} className="bg-background hover:bg-muted text-primary border border-primary/20 shadow-sm">
                 {aiAssistMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 Autocompletar
               </Button>
             </div>
 
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid gap-6 md:grid-cols-2">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Nome do Produto</FormLabel>
-                  <FormControl><Input placeholder="Ex: Semente Soja Premium" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormLabel className="text-foreground font-medium">Nome do Produto</FormLabel>
+                  <FormControl><Input placeholder="Ex: Semente Soja Premium" className="bg-muted/50 border-input focus:border-primary focus:bg-background transition-all h-11 text-foreground placeholder:text-muted-foreground/50" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="category" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Categoria</FormLabel>
-                  <FormControl><Input placeholder="Ex: Grãos" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormLabel className="text-foreground font-medium">Categoria</FormLabel>
+                  <FormControl><Input placeholder="Ex: Grãos" className="bg-muted/50 border-input focus:border-primary focus:bg-background transition-all h-11 text-foreground placeholder:text-muted-foreground/50" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="manufacturer" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Fabricante</FormLabel>
-                  <FormControl><Input placeholder="Ex: AgroTech" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormLabel className="text-foreground font-medium">Fabricante</FormLabel>
+                  <FormControl><Input placeholder="Ex: AgroTech" className="bg-muted/50 border-input focus:border-primary focus:bg-background transition-all h-11 text-foreground placeholder:text-muted-foreground/50" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="price" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Preço (R$)</FormLabel>
+                  <FormLabel className="text-foreground font-medium">Preço (R$)</FormLabel>
                   <FormControl>
-                    <Input type="number" className="bg-white/5 border-white/10" {...field} onChange={e => field.onChange(Number(e.target.value))} />
+                    <Input type="number" className="bg-muted/50 border-input focus:border-primary focus:bg-background transition-all h-11 text-foreground placeholder:text-muted-foreground/50" {...field} onChange={e => field.onChange(Number(e.target.value))} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -399,25 +399,25 @@ function CatalogFormDialog({
 
             <FormField control={form.control} name="description" render={({ field }) => (
               <FormItem>
-                <FormLabel>Descrição</FormLabel>
-                <FormControl><Textarea rows={4} className="bg-white/5 border-white/10 resize-none" placeholder="Detalhes do produto..." {...field} /></FormControl>
+                <FormLabel className="text-foreground font-medium">Descrição</FormLabel>
+                <FormControl><Textarea rows={4} className="bg-muted/50 border-input focus:border-primary focus:bg-background resize-none min-h-[100px] text-foreground placeholder:text-muted-foreground/50" placeholder="Detalhes do produto..." {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )} />
 
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid gap-6 md:grid-cols-2">
               <FormField control={form.control} name="tagsText" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Tags (separadas por vírgula)</FormLabel>
-                  <FormControl><Input placeholder="soja, premium, safra 2024" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormLabel className="text-foreground font-medium">Tags (separadas por vírgula)</FormLabel>
+                  <FormControl><Input placeholder="soja, premium, safra 2024" className="bg-muted/50 border-input focus:border-primary focus:bg-background transition-all h-11 text-foreground placeholder:text-muted-foreground/50" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="status" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Status</FormLabel>
+                  <FormLabel className="text-foreground font-medium">Status</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl><SelectTrigger className="bg-white/5 border-white/10"><SelectValue /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger className="bg-muted/50 border-input focus:border-primary focus:bg-background h-11 text-foreground"><SelectValue /></SelectTrigger></FormControl>
                     <SelectContent>
                       <SelectItem value="ativo">Ativo</SelectItem>
                       <SelectItem value="arquivado">Arquivado</SelectItem>
@@ -427,9 +427,9 @@ function CatalogFormDialog({
                 </FormItem>
               )} />
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0 pt-4">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button type="submit" disabled={isSubmitting} className="glass-button">
+              <Button type="submit" disabled={isSubmitting} className="h-11 px-8">
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {mode === "create" ? "Criar Item" : "Salvar Alterações"}
               </Button>
@@ -439,6 +439,7 @@ function CatalogFormDialog({
       </DialogContent>
     </Dialog>
   );
+
 }
 
 export default function CatalogPage() {
