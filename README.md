@@ -8,59 +8,40 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 flowchart TD
     U[User message] --> Chat[POST /api/chat]
 
-    Chat -->|generic product list| Clarify[Ask category/price<br/>stop flow]
-    Chat -->|otherwise| Build[Prime system + user messages]
+    Chat --> LoadInstr[Load chatGather/chatRespond<br/>from DB (fallbacks ready)]
+    LoadInstr --> ToolRules[Append toolUsageReminder<br/>+ user message]
 
-    %% Nó de decisão de intenção agronômica
-    Agronomy{detectAgronomyIntent}
-    Build --> Agronomy
+    ToolRules --> FirstCall[OpenRouter call #1<br/>tools: searchFaqs/searchCatalog]
+    FirstCall --> Tools{Tool calls?}
 
-    %% Nó de pré-busca híbrida
-    PreHybrid{"Pre hybrid catalog search (vector + lexical)", databaseQueried: true}
-    Agronomy -->|yes| PreHybrid
+    Tools -->|no| Direct[Return first answer<br/>databaseQueried = false]
+    Direct --> Resp
 
-    PreHybrid --> PreCtx[Attach hybrid summary<br/>as system message]
-    PreHybrid --> LogPre[logHybridStats]
+    Tools -->|yes| ToolFanout[Execute requested tools]
+    ToolFanout --> FAQ[searchFaqs -> Postgres]
+    ToolFanout --> Catalog[searchCatalog -> hybrid merge]
 
-    Agronomy -->|no| Force{detectForcedTool?}
+    FAQ --> FAQCtx[Push FAQ JSON<br/>as system message]
+    Catalog --> CatalogCtx[Push hybrid summary<br/>ragSource = hybrid]
 
-    Build --> Force
-    PreCtx --> Force
-
-    Force -->|catalog intent| FirstLLM[OpenRouter call #1<br/>tools: searchFaqs / searchCatalog<br/>tool_choice = searchCatalog]
-    Force -->|none| FirstLLM
-
-    FirstLLM --> Tools{Tool calls?}
-
-    Tools -->|no| DBCheck{databaseQueried?}
-    DBCheck -->|no| Direct[Direct answer<br/>llmCalls = 1<br/>ragSource = none]
-    DBCheck -->|yes| SecondLLM[OpenRouter call #2<br/>with collected contexts]
-    Direct --> Resp[Response + debug]
-
-    Tools -->|yes| ToolFanout[Run requested tools]
-    ToolFanout --> FAQ[searchFaqs -> FAQ DB]
-    ToolFanout --> Catalog[searchCatalog -> hybrid]
-
-    FAQ --> FAQCtx[Add FAQ payload to messages]
-    Catalog --> CatalogCtx[Add catalog payload<br/>ragSource = hybrid]
-
-    FAQ --> ToolLog[logToolPayload + counts]
+    FAQ --> ToolLog[logToolPayload -> SSE]
     Catalog --> ToolLog
+    Catalog --> HybridStats[logHybridStats -> SSE]
 
-    PreCtx --> SecondLLM
-    FAQCtx --> SecondLLM
-    CatalogCtx --> SecondLLM
-    SecondLLM --> Resp    
-    ToolLog --> SSE["/api/logs/stream" -> UI]
-    LogPre --> SSE
+    FAQCtx --> FinalReminder[Append finalResponseReminder]
+    CatalogCtx --> FinalReminder
+
+    FinalReminder --> SecondCall[OpenRouter call #2<br/>no tools, temp 0.7]
+    SecondCall --> Resp[Response + debug (<db flags, timings>)]
 ```
 
-- `requiresProductClarification` encerra o fluxo antes de qualquer chamada de LLM/DB quando o pedido é apenas “liste produtos”.
-- `detectAgronomyIntent` dispara uma pré-busca híbrida e injeta seu resumo como `system`, marcando `databaseQueried=true` mesmo que a IA não chame tools depois.
-- `detectForcedTool` força `tool_choice=searchCatalog` quando há forte intenção de catálogo para evitar respostas sem contexto.
-- Se `databaseQueried=false` (sem pré-busca e sem tool calls), a resposta vem apenas da primeira chamada (`llmCalls=1`, `ragSource=none`).
-- Quando tools são acionadas, o backend consulta FAQs + catálogo híbrido, anexa o contexto e faz a segunda chamada OpenRouter.
-- Logs de busca, payloads de tool e tempos chegam ao terminal via SSE.
+- As instruções `chatGather` e `chatRespond` são lidas do banco (fallback codificado garante resiliência) e forçam a operação em duas etapas com coleta de dados explícita antes da resposta.
+- O `toolUsageReminder` adiciona regras rígidas: `searchCatalog` é obrigatório para consultas de produto/cultivo/fabricante/preço e `searchFaqs` cobre políticas/processos; cumprimentos simples não devem acionar tools.
+- A primeira chamada OpenRouter roda com `tool_choice=auto`; se nenhuma tool for acionada (`databaseQueried=false`), o backend devolve diretamente o texto da IA e marca `ragSource=none` em `debug`.
+- Quando há tool calls, `searchFaqs` usa a query enviada (ou cai para a mensagem do usuário) e devolve o JSON bruto; `searchCatalog` executa a busca híbrida (vetorial + lexical), monta um resumo textual e registra estatísticas via `logHybridStats`.
+- Cada resultado vira uma nova mensagem `system` antes da segunda chamada, e `logToolPayload` alimenta o `/api/logs/stream` para o terminal em tempo real.
+- A segunda chamada recebe um `finalResponseReminder` que dita a formatação padrão (resumo da busca, resposta principal, próximos passos) e limita o modelo a usar apenas os dados fornecidos.
+- A resposta final inclui `debug` com contagens de FAQs/itens, `ragSource`, tempos da busca híbrida e o número de chamadas LLM (`llmCalls=2`).
 
 ## Testes rápidos
 
