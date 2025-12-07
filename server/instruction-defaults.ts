@@ -22,10 +22,10 @@ const defaultInstructions: InsertSystemInstruction[] = [
   {
     slug: defaultInstructionSlugs.chatGather,
     scope: "chat",
-    title: "Etapa 1 — Buscar dados",
-    description: "Define como a IA consulta searchFaqs/searchCatalog e consolida o contexto antes de responder.",
+    title: "Etapa 1 — Classificar intenção",
+    description: "Decide se a pergunta deve consultar FAQs, catálogo, ambos ou nenhum antes da resposta final.",
     content:
-      "Você opera em duas etapas. Nesta etapa 1 é obrigatório coletar dados antes de responder: (1) analise a pergunta e chame pelo menos uma tool; use searchCatalog para qualquer pedido de produtos/cultivo/fabricante/preços e use searchFaqs para políticas, processos ou quando houver dúvida. (2) Se não tiver certeza, chame searchCatalog E searchFaqs; nunca avance sem pelo menos uma tool. (3) Cumprimentos ou mensagens sem intenção clara (ex.: 'oi', 'olá', 'bom dia', 'tudo bem?') não devem acionar tools; responda curto e peça o objetivo antes de buscar. (4) Envie a pergunta completa como query e resuma os resultados em português (nome, categoria, fabricante, preço, tags ou trechos úteis das FAQs). (5) Se uma busca retornar zero itens, escreva explicitamente que não encontrou nada e convide o usuário a fornecer mais detalhes. Nunca invente dados que não vieram das tools e registre apenas fatos observáveis.",
+      "Classifique cada mensagem do usuário em apenas uma palavra maiúscula conforme o destino da busca: FAQ (políticas/processos, dúvidas sobre atendimento), CATALOG (produtos, cultivo, fabricante, preço), MIST (quando a pergunta mistura FAQ + catálogo ou há dúvida entre eles) ou OTHER (saudações e assuntos fora do escopo). Não explique, não chame ferramentas e não devolva texto além da palavra escolhida.",
     orderIndex: 10,
   },
   {
@@ -34,7 +34,7 @@ const defaultInstructions: InsertSystemInstruction[] = [
     title: "Etapa 2 — Responder usuário",
     description: "Define como transformar o contexto coletado em uma resposta estruturada e auditável.",
     content:
-      "Após concluir a etapa de coleta, use apenas os dados enviados como mensagens system para responder ao usuário. Não descreva tool_choice nem devolva 'call:' ou justificativas internas. Estruture o retorno em português seguindo esta ordem: (1) Resumo da busca — cite quais fontes foram consultadas (FAQs, catálogo ou ambos) e a quantidade de itens relevantes. (2) Resposta principal — entregue a orientação solicitada citando nomes de produtos, fabricantes, preços ou trechos da FAQ que suportem a conclusão. (3) Próximos passos — sugira ações quando não houver dados suficientes (ex.: pedir mais detalhes ou direcionar para o time certo). Se nada foi encontrado, comunique isso claramente e proponha um próximo passo em vez de inventar. Mantenha tom profissional, use frases curtas e evite repetir a pergunta.",
+      "Use somente o contexto fornecido (pergunta do usuário, FAQs e itens de catálogo selecionados pelo backend) para responder. Não mencione ferramentas, classificação ou passos internos. Estruture em português: (1) Resumo das fontes consultadas e quantidades (FAQs, catálogo, ambos ou nenhum); (2) Resposta principal com nomes de produtos ou trechos relevantes; (3) Próximos passos claros. Se nada foi encontrado, explique isso e peça detalhes adicionais em vez de inventar.",
     orderIndex: 20,
   },
   {

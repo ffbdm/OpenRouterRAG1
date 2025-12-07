@@ -8,41 +8,29 @@ Assistente de FAQ e catálogo com RAG híbrido (lexical + vetorial) via OpenRout
 flowchart TD
     U[User message] --> Chat[POST /api/chat]
 
-    Chat --> LoadInstr[Load chatGather/chatRespond<br/>from DB (fallbacks ready)]
-    LoadInstr --> ToolRules[Append toolUsageReminder<br/>+ user message]
+    Chat --> Classify[OpenRouter call #1<br/>model: OPENROUTER_MODEL_CLASSIFY<br/>retorna FAQ/CATALOG/MIST/OTHER]
+    Classify --> Route{Intent}
 
-    ToolRules --> FirstCall[OpenRouter call #1<br/>tools: searchFaqs/searchCatalog]
-    FirstCall --> Tools{Tool calls?}
+    Route -->|OTHER| NoSearch[Nenhuma busca<br/>contexto vazio]
+    Route -->|FAQ| FAQ[searchFaqs → Postgres]
+    Route -->|CATALOG| Catalog[searchCatalogHybrid → merge]
+    Route -->|MIST| FAQ
+    Route -->|MIST| Catalog
 
-    Tools -->|no| Direct[Return first answer<br/>databaseQueried = false]
-    Direct --> Resp
+    FAQ --> FAQCtx[Contexto de FAQs<br/>+ logToolPayload]
+    Catalog --> CatalogCtx[Contexto do catálogo<br/>logToolPayload + logHybridStats]
+    NoSearch --> FinalPrep
+    FAQCtx --> FinalPrep[Consolida contexto<br/>+ instrução responder]
+    CatalogCtx --> FinalPrep
 
-    Tools -->|yes| ToolFanout[Execute requested tools]
-
-    ToolFanout --> FAQ[searchFaqs → Postgres]
-    ToolFanout --> Catalog[searchCatalog → hybrid merge]
-
-    FAQ --> FAQCtx[Push FAQ JSON<br/>as system message]
-    Catalog --> CatalogCtx[Push hybrid summary<br/>ragSource = hybrid]
-
-    FAQ --> ToolLog[logToolPayload → SSE]
-    Catalog --> ToolLog
-    Catalog --> HybridStats[logHybridStats → SSE]
-
-    FAQCtx --> FinalReminder[Append finalResponseReminder]
-    CatalogCtx --> FinalReminder
-
-    FinalReminder --> SecondCall[OpenRouter call #2<br/>no tools, temp 0.7]
-    SecondCall --> Resp[Response + debug<br/>(db flags, timings)]
+    FinalPrep --> Answer[OpenRouter call #2<br/>model: OPENROUTER_MODEL_ANSWER<br/>sem tools]
+    Answer --> Resp[Resposta final + debug]
 ```
 
-- As instruções `chatGather` e `chatRespond` são lidas do banco (fallback codificado garante resiliência) e forçam a operação em duas etapas com coleta de dados explícita antes da resposta.
-- O `toolUsageReminder` adiciona regras rígidas: `searchCatalog` é obrigatório para consultas de produto/cultivo/fabricante/preço e `searchFaqs` cobre políticas/processos; cumprimentos simples não devem acionar tools.
-- A primeira chamada OpenRouter roda com `tool_choice=auto`; se nenhuma tool for acionada (`databaseQueried=false`), o backend devolve diretamente o texto da IA e marca `ragSource=none` em `debug`.
-- Quando há tool calls, `searchFaqs` usa a query enviada (ou cai para a mensagem do usuário) e devolve o JSON bruto; `searchCatalog` executa a busca híbrida (vetorial + lexical), monta um resumo textual e registra estatísticas via `logHybridStats`.
-- Cada resultado vira uma nova mensagem `system` antes da segunda chamada, e `logToolPayload` alimenta o `/api/logs/stream` para o terminal em tempo real.
-- A segunda chamada recebe um `finalResponseReminder` que dita a formatação padrão (resumo da busca, resposta principal, próximos passos) e limita o modelo a usar apenas os dados fornecidos.
-- A resposta final inclui `debug` com contagens de FAQs/itens, `ragSource`, tempos da busca híbrida e o número de chamadas LLM (`llmCalls=2`).
+- Chamada #1 (classificação) instrui a IA a retornar **apenas uma palavra** (`FAQ`, `CATALOG`, `MIST`, `OTHER`), registrando o modelo usado (`OPENROUTER_MODEL_CLASSIFY` ou fallback).
+- O backend decide quais buscas executar com base na intenção (`searchFaqs`, `searchCatalogHybrid`, ambos ou nenhum), monta um único contexto e registra logs (`classification=...`, `usedTools`, `llmCalls=0/1/2`, `logToolPayload`, `logHybridStats`).
+- Chamada #2 (`OPENROUTER_MODEL_ANSWER`) recebe somente o contexto consolidado como mensagens `system` e o texto do usuário; **não usa tools** e não pode mencionar a palavra de intenção.
+- O `debug` da resposta inclui a intenção detectada, modelos usados (classify/answer), flags de banco, contagens de FAQs/itens, `ragSource`, `usedTools` e `llmCalls` coerente com as buscas disparadas.
 
 ## Testes rápidos
 
