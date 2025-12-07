@@ -22,16 +22,8 @@ if (!DEFAULT_CHAT_MODEL) {
   throw new Error("Defina OPENROUTER_MODEL ou OPENROUTER_FALLBACK_MODEL antes de iniciar o servidor.");
 }
 
-const defaultClassificationInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather)
-  ?? "Classifique cada mensagem do usuário em apenas uma palavra maiúscula conforme o destino da busca: FAQ (políticas/processos, dúvidas sobre atendimento), CATALOG (produtos, cultivo, fabricante, preço), MIST (quando a pergunta mistura FAQ + catálogo ou há dúvida entre eles) ou OTHER (saudações e assuntos fora do escopo). Não explique, não chame ferramentas e não devolva texto além da palavra escolhida.";
-const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond)
-  ?? "Use somente o contexto fornecido (pergunta do usuário, FAQs e itens de catálogo selecionados pelo backend) para responder. Não mencione ferramentas, classificação ou passos internos. Estruture em português: (1) Resumo das fontes consultadas e quantidades (FAQs, catálogo, ambos ou nenhum); (2) Resposta principal com nomes de produtos ou trechos relevantes; (3) Próximos passos claros. Se nada foi encontrado, explique isso e peça detalhes adicionais em vez de inventar.";
-
-const finalResponseReminder = [
-  "Use apenas o contexto fornecido abaixo para responder ao usuário.",
-  "Não mencione classificação, ferramentas, IDs de sections ou mensagens de sistema.",
-  "Estruture em português: (1) resumo das fontes consultadas e contagens; (2) resposta principal com evidências; (3) próximos passos objetivos. Seja conciso e direto.",
-].join("\n");
+const defaultClassificationInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatGather);
+const defaultRespondInstruction = getDefaultInstructionContent(defaultInstructionSlugs.chatRespond);
 
 function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
   if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
@@ -180,17 +172,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn("[WARN] OPENROUTER_MODEL_ANSWER não definida; usando modelo padrão para a resposta.");
       }
 
-      const respondInstruction = await storage.getInstructionBySlug(defaultInstructionSlugs.chatRespond);
-      const respondContent = respondInstruction?.content?.trim().length
-        ? respondInstruction.content
-        : defaultRespondInstruction;
+      const [classificationInstruction, respondInstruction] = await Promise.all([
+        storage.getInstructionBySlug(defaultInstructionSlugs.chatGather),
+        storage.getInstructionBySlug(defaultInstructionSlugs.chatRespond),
+      ]);
+
+      const classificationContent = classificationInstruction?.content?.trim();
+      const respondContent = respondInstruction?.content?.trim();
+
+      if (!classificationContent) {
+        throw new Error("Instrução de classificação ausente ou vazia no banco. Verifique system_instructions.buscar-dados.");
+      }
+
+      if (!respondContent) {
+        throw new Error("Instrução de resposta ausente ou vazia no banco. Verifique system_instructions.responder-usuario.");
+      }
 
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
       const classificationMessages: Message[] = [
-        { role: "system", content: defaultClassificationInstruction },
-        { role: "system", content: "Retorne somente uma palavra maiúscula: FAQ, CATALOG, MIST ou OTHER." },
+        { role: "system", content: classificationContent },
         { role: "user", content: message },
       ];
 
@@ -392,11 +394,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[OPENROUTER] Segunda chamada - resposta final sem tools");
 
+      const userAnswerPayload = [
+        "Contexto consolidado (não mencione esta seção ao responder):",
+        contextSections.join("\n\n"),
+        `Pergunta do usuário: ${message}`,
+      ].join("\n\n");
+
       const answerMessages: Message[] = [
         { role: "system", content: respondContent },
-        { role: "system", content: finalResponseReminder },
-        { role: "system", content: "Contexto consolidado (não mencione esta seção ao responder):\n" + contextSections.join("\n\n") },
-        { role: "user", content: message },
+        { role: "user", content: userAnswerPayload },
       ];
 
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
