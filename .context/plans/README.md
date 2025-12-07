@@ -28,6 +28,7 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 15. [Rag System Hybrid](./rag-system-hybrid.md)
 16. [Simplify Flow Rag](./simplify-flow-rag.md)
 17. [Ui Catalog](./ui-catalog.md)
+18. [Whatsapp](./whatsapp.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
