@@ -98,15 +98,15 @@ export default function ChatPage() {
               </div>
               <div className="space-y-2 max-w-md px-4">
                 <h2 className="text-3xl font-display font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-500">
-                  How can I help you?
+                  Como posso ajudar?
                 </h2>
                 <p className="text-muted-foreground text-lg leading-relaxed">
-                  I can analyze your database and answer questions using RAG technology.
+                  Posso analisar seu banco de dados e responder perguntas usando tecnologia RAG.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg px-4 mt-8">
-                {["List all catalog items", "Search for high value products", "What is the system status?", "How does RAG work?"].map((suggestion, i) => (
+                {["Como esse chat pode me ajudar?", "Poderia me fornecer mais dados da empresa?", "Quero saber mais sobre os produtos de vocês.", "Preciso de ajuda com preços, frete ou formas de pagamento."].map((suggestion, i) => (
                   <button
                     key={i}
                     onClick={() => {
@@ -226,7 +226,7 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask anything about the catalog..."
+                placeholder="Pergunte algo sobre o catálogo..."
                 className="min-h-[50px] max-h-[140px] resize-none border-0 bg-transparent focus-visible:ring-0 px-4 py-3 text-base placeholder:text-muted-foreground/50 shadow-none no-scrollbar flex-1"
                 disabled={chatMutation.isPending}
               />
