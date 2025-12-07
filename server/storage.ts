@@ -26,6 +26,9 @@ import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type Catalog
 
 let faqNormalizationEnsured = false;
 
+const ACCENT_FROM = "ÁÀÃÂÄáàãâäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç";
+const ACCENT_TO = "AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc";
+
 async function ensureFaqQuestionNormalization() {
   if (faqNormalizationEnsured) return;
 
@@ -49,56 +52,39 @@ async function ensureFaqQuestionNormalization() {
     console.log(`[DB] question_normalized atualizado para ${updates} FAQ${updates === 1 ? "" : "s"}.`);
   }
 
-  faqNormalizationEnsured = true;
+    faqNormalizationEnsured = true;
 }
 
 function buildCatalogSearchCondition(query: string) {
   const tokens = extractSearchTokens(query);
-  const trimmed = query.trim();
+  const normalizedQuery = normalizeText(query);
+  const terms = tokens.length > 0
+    ? tokens
+    : normalizedQuery
+      ? [normalizedQuery]
+      : [];
 
-  const buildFieldMatch = (term: string, options?: { partial?: boolean }) => {
-    const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
+  const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
+  const searchableFields = [
+    sql`lower(translate(${catalogItems.name}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.description}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.category}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.manufacturer}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${tagsText}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+  ];
 
-    if (options?.partial) {
+  const clauses = terms
+    .map((term) => {
       const likePattern = `%${term}%`;
-      return or(
-        ilike(catalogItems.name, likePattern),
-        ilike(catalogItems.description, likePattern),
-        ilike(catalogItems.category, likePattern),
-        ilike(catalogItems.manufacturer, likePattern),
-        ilike(tagsText, likePattern)
-      );
-    }
+      return or(...searchableFields.map((field) => ilike(field, likePattern)));
+    })
+    .filter(Boolean) as SQL[];
 
-    const regex = buildWordBoundaryPattern(term);
-    return or(
-      sql`${catalogItems.name} ~* ${regex}`,
-      sql`${catalogItems.description} ~* ${regex}`,
-      sql`${catalogItems.category} ~* ${regex}`,
-      sql`${catalogItems.manufacturer} ~* ${regex}`,
-      sql`${tagsText} ~* ${regex}`,
-    );
-  };
-
-  if (tokens.length === 0) {
-    return buildFieldMatch(trimmed || query, { partial: true });
+  if (clauses.length === 0) {
+    return sql`true`;
   }
 
-  if (tokens.length === 1) {
-    return buildFieldMatch(tokens[0]);
-  }
-
-  return or(...tokens.map((token) => buildFieldMatch(token)));
-}
-
-function buildWordBoundaryPattern(term: string): string {
-  const normalized = term.trim();
-  if (!normalized) return "";
-  return `\\m${escapeRegex(normalized)}\\M`;
-}
-
-function escapeRegex(input: string): string {
-  return input.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+  return or(...clauses);
 }
 
 function buildVectorParam(embedding: number[]) {
