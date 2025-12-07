@@ -192,6 +192,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[OPENROUTER] Chamada de classificação iniciada");
 
+      const classificationResponseFormat = {
+        type: "json_schema" as const,
+        json_schema: {
+          name: "chat_intent",
+          schema: {
+            type: "object",
+            properties: {
+              intent: { type: "string", enum: ["FAQ", "CATALOG", "MIST", "OTHER"] },
+            },
+            required: ["intent"],
+            additionalProperties: false,
+          },
+          strict: true,
+        },
+      };
+
       const classifyResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -204,8 +220,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           model: classificationModel,
           messages: classificationMessages,
           temperature: 0,
-          // Alguns provedores exigem mínimo de 16 tokens; manter baixo sem quebrar.
-          max_tokens: 16,
+          // Espaço para modelos que gastam tokens em reasoning antes do conteúdo JSON.
+          max_tokens: 256,
+          response_format: classificationResponseFormat,
         }),
       });
 
@@ -218,7 +235,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const classifyData = await classifyResponse.json();
       const classifyMessage = classifyData.choices?.[0]?.message ?? {};
-      const rawIntent = typeof classifyMessage.content === "string" ? classifyMessage.content : "";
+      const rawContent = typeof classifyMessage.content === "string" ? classifyMessage.content : "";
+
+      // Tenta extrair JSON quando response_format é respeitado; senão, usa o conteúdo direto.
+      let rawIntent = rawContent;
+      if (rawContent.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(rawContent);
+          if (parsed && typeof parsed.intent === "string") {
+            rawIntent = parsed.intent;
+          }
+        } catch (error) {
+          console.warn("[CLASSIFY] Falha ao fazer parse do JSON de intenção:", error);
+        }
+      }
+
+      if (!rawIntent.trim()) {
+        console.warn("[CLASSIFY] Conteúdo vazio retornado pelo modelo de classificação.");
+        console.warn("[CLASSIFY] Resposta completa:", JSON.stringify({
+          id: classifyData.id,
+          model: classifyData.model,
+          choices: classifyData.choices,
+          usage: classifyData.usage,
+          status: classifyResponse.status,
+          requestId: classifyResponse.headers.get("x-request-id"),
+        }, null, 2));
+      }
       const intent: ChatIntent = normalizeIntent(rawIntent);
 
       console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}")`);
