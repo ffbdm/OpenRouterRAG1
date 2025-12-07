@@ -18,21 +18,22 @@ flowchart TD
     Direct --> Resp
 
     Tools -->|yes| ToolFanout[Execute requested tools]
-    ToolFanout --> FAQ[searchFaqs -> Postgres]
-    ToolFanout --> Catalog[searchCatalog -> hybrid merge]
+
+    ToolFanout --> FAQ[searchFaqs → Postgres]
+    ToolFanout --> Catalog[searchCatalog → hybrid merge]
 
     FAQ --> FAQCtx[Push FAQ JSON<br/>as system message]
     Catalog --> CatalogCtx[Push hybrid summary<br/>ragSource = hybrid]
 
-    FAQ --> ToolLog[logToolPayload -> SSE]
+    FAQ --> ToolLog[logToolPayload → SSE]
     Catalog --> ToolLog
-    Catalog --> HybridStats[logHybridStats -> SSE]
+    Catalog --> HybridStats[logHybridStats → SSE]
 
     FAQCtx --> FinalReminder[Append finalResponseReminder]
     CatalogCtx --> FinalReminder
 
     FinalReminder --> SecondCall[OpenRouter call #2<br/>no tools, temp 0.7]
-    SecondCall --> Resp[Response + debug (<db flags, timings>)]
+    SecondCall --> Resp[Response + debug<br/>(db flags, timings)]
 ```
 
 - As instruções `chatGather` e `chatRespond` são lidas do banco (fallback codificado garante resiliência) e forçam a operação em duas etapas com coleta de dados explícita antes da resposta.
