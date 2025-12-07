@@ -15,6 +15,7 @@ Capture the policies and guardrails that keep this project secure and compliant.
 - Rotate `OPENROUTER_API_KEY` and Neon credentials if logs or config files inadvertently leak metadata.
 - Keep `BLOB_READ_WRITE_TOKEN` scoped to the `agroremoto-blob` bucket. Do not log blob URLs with embedded signatures; `server/catalog-routes.ts` only returns sanitized URLs to the client.
 - FAQ and catalog tables only contain reference content (no PII). If you introduce customer data, document retention windows and sanitization steps here.
+- O histórico do chat não é persistido: o cliente envia `history` e o backend usa apenas as últimas mensagens (limitadas por `CHAT_HISTORY_CONTEXT_LIMIT` e truncadas a ~1200 caracteres) antes de enviá-las ao modelo.
 - Avoid dumping full OpenRouter responses into logs—only log counts and tool metadata to limit exposure of customer prompts.
 - Quando precisar auditar as tool calls, use o `logToolPayload` (em `server/routes.ts`) que já normaliza espaços e limita o preview a 800 caracteres para evitar vazamento de prompts extensos ou dados sensíveis.
 

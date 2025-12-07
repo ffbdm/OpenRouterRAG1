@@ -27,10 +27,15 @@ flowchart TD
     Answer --> Resp[Resposta final + debug]
 ```
 
+- O payload do chat inclui `history` (user/assistant) com as últimas interações; o backend limita o número de mensagens usadas no contexto via `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, máx. 20) e trunca cada uma a ~1200 caracteres para evitar estourar tokens.
 - Chamada #1 (classificação) instrui a IA a retornar **apenas uma palavra** (`FAQ`, `CATALOG`, `MIST`, `OTHER`), registrando o modelo usado (`OPENROUTER_MODEL_CLASSIFY`, `OPENROUTER_MODEL_CLASSIFY_FALLBACK` ou fallback padrão).
 - O backend decide quais buscas executar com base na intenção (`searchFaqs`, `searchCatalogHybrid`, ambos ou nenhum), monta um único contexto e registra logs (`classification=...`, `usedTools`, `llmCalls=0/1/2`, `logToolPayload`, `logHybridStats`).
 - Chamada #2 (`OPENROUTER_MODEL_ANSWER`) recebe somente o contexto consolidado como mensagens `system` e o texto do usuário; **não usa tools** e não pode mencionar a palavra de intenção.
 - O `debug` da resposta inclui a intenção detectada, modelos usados (classify/answer), flags de banco, contagens de FAQs/itens, `ragSource`, `usedTools` e `llmCalls` coerente com as buscas disparadas.
+
+## Variáveis de ambiente
+
+- `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, máx. 20): número de mensagens recentes (user/assistant) que entram no contexto enviado ao LLM. A API aceita um array `history` e usa apenas as últimas mensagens nessa ordem, truncando cada conteúdo a ~1200 caracteres. Ajuste para balancear recall x custo de tokens.
 
 ## Testes rápidos
 

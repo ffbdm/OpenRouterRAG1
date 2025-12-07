@@ -4,10 +4,10 @@
 Explain how data enters, moves through, and exits the system, including interactions with external services.
 
 ## High-level Flow
-1. The React SPA collects a Portuguese prompt and sends `POST /api/chat { message }`.
+1. The React SPA collects a Portuguese prompt and sends `POST /api/chat { message, history }`, where `history` carries the most recent user/assistant turns. The server clamps the array to `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, max 20) and truncates each message (~1200 chars) before passing it to the model.
 2. Express chama o OpenRouter com o modelo `OPENROUTER_MODEL_CLASSIFY` (ou fallback) para classificar a intenção em **uma única palavra** (`FAQ`, `CATALOG`, `MIST`, `OTHER`) sem usar tools, max_tokens baixo e temperatura 0.
 3. O backend normaliza a intenção, decide quais buscas executar (`searchFaqs`, `searchCatalogHybrid`, ambas ou nenhuma), registra `classification`, `usedTools`, `llmCalls` e executa as queries via Drizzle.
-4. Um contexto único é construído com a mensagem do usuário, FAQs relevantes e produtos do catálogo (quando houver), sem expor a palavra de intenção; `logToolPayload` e `logHybridStats` alimentam o terminal.
+4. Um contexto único é construído começando pelo histórico recente (ordenado do mais antigo ao mais novo, já limitado pelo env var), seguido da mensagem do usuário, FAQs relevantes e produtos do catálogo (quando houver), sem expor a palavra de intenção; `logToolPayload` e `logHybridStats` alimentam o terminal.
 5. A segunda chamada ao OpenRouter usa `OPENROUTER_MODEL_ANSWER` (ou fallback) sem tools, recebendo apenas instruções de resposta e o contexto consolidado para gerar o texto final.
 6. Express não persiste estado: a resposta final e o objeto `debug` voltam para o SPA enquanto o terminal consome `/api/logs/stream` com os mesmos eventos estruturados (incluindo `classification=...`).
 7. The catalog admin page now issues `GET/POST /api/catalog/:id/files` and `DELETE /api/catalog/files/:fileId` to upload/list/remove attachments stored in Vercel Blob; metadata is persisted in Postgres for RAG context.

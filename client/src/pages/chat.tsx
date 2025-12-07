@@ -15,6 +15,13 @@ type Message = {
   content: string;
 };
 
+type ChatPayload = {
+  message: string;
+  history: Message[];
+};
+
+const MAX_HISTORY_MESSAGES = 12;
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -38,8 +45,8 @@ export default function ChatPage() {
   }, [isMobile]);
 
   const chatMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const response = await apiRequest("POST", "/api/chat", { message });
+    mutationFn: async ({ message, history }: ChatPayload) => {
+      const response = await apiRequest("POST", "/api/chat", { message, history });
       const data = await response.json();
       return data;
     },
@@ -63,9 +70,10 @@ export default function ChatPage() {
     if (!input.trim() || chatMutation.isPending) return;
 
     const userMessage = input.trim();
+    const history = messages.slice(-MAX_HISTORY_MESSAGES);
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setInput("");
-    chatMutation.mutate(userMessage);
+    chatMutation.mutate({ message: userMessage, history });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

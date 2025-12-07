@@ -15,6 +15,11 @@ type Message = {
   content: string;
 };
 
+type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const DEFAULT_CHAT_MODEL = process.env.OPENROUTER_MODEL
   || process.env.OPENROUTER_FALLBACK_MODEL;
 
@@ -29,6 +34,8 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
   if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
   return Math.min(Math.max(1, Math.floor(rawLimit)), max);
 }
+
+const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
 
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
@@ -78,6 +85,33 @@ function logHybridStats(label: string, result: CatalogHybridSearchResult) {
       console.log(`  #${index + 1} ${hit.item.name} | fonte=${sourceLabel} | vec=${vectorScore} | lex=${lexicalScore}${pairTag}`);
     });
   }
+}
+
+function buildHistorySection(history: ChatHistoryMessage[] | undefined, limit: number): string {
+  if (!history || history.length === 0) {
+    return "Histórico do chat: não enviado pelo cliente ou vazio.";
+  }
+
+  const normalized = history
+    .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
+    .map((item) => {
+      const trimmed = item.content.trim();
+      const truncated = trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
+      return { ...item, content: truncated };
+    })
+    .slice(-limit);
+
+  if (normalized.length === 0) {
+    return "Histórico do chat: não enviado pelo cliente ou vazio.";
+  }
+
+  const label = normalized.length === 1 ? "mensagem" : "mensagens";
+  const lines = normalized.map((item, index) => `${index + 1}. ${item.role === "assistant" ? "Assistente" : "Usuário"}: ${item.content}`);
+
+  return [
+    `Histórico recente do chat (${normalized.length} ${label}, limite configurado=${limit}, ordem cronológica):`,
+    ...lines,
+  ].join("\n");
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -144,14 +178,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/chat", async (req, res) => {
     try {
-      const { message } = req.body;
+      const chatSchema = z.object({
+        message: z.string().trim().min(1),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string().trim().min(1),
+        })).max(50).optional(),
+      });
 
-      if (!message || typeof message !== "string") {
-        return res.status(400).json({ error: "Mensagem inválida" });
+      const parsedChat = chatSchema.safeParse(req.body);
+      if (!parsedChat.success) {
+        return res.status(400).json({ error: "Payload inválido", details: parsedChat.error.flatten() });
       }
 
+      const { message, history } = parsedChat.data;
+      const userMessage = message.trim();
+
       console.log("\n========================================");
-      console.log("[REQUEST] Mensagem do usuário:", message);
+      console.log("[REQUEST] Mensagem do usuário:", userMessage);
       console.log("========================================\n");
 
       const apiKey = process.env.OPENROUTER_API_KEY;
@@ -193,7 +237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const classificationMessages: Message[] = [
         { role: "system", content: classificationContent },
-        { role: "user", content: message },
+        { role: "user", content: userMessage },
       ];
 
       console.log("[OPENROUTER] Chamada de classificação iniciada");
@@ -317,6 +361,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed})`);
       console.log("[MODELS] classify usado:", classificationModelUsed, "| answer:", answerModel);
 
+      console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
+
+      const historySection = buildHistorySection(history, chatHistoryLimit);
+
       const searchPlan = planSearches(intent);
       console.log(`[ROUTING] Tools planejadas: ${searchPlan.usedTools.join(", ") || "nenhuma"} | llmCalls=${searchPlan.llmCalls}`);
 
@@ -327,7 +375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let hybridResult: CatalogHybridSearchResult | undefined;
 
       const contextSections: string[] = [
-        "Contexto do chat com o usuário (futuro): nenhum histórico carregado neste fluxo.",
+        historySection,
       ];
 
       if (searchPlan.runFaq) {
@@ -335,7 +383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedLimit = resolveLimit(undefined, 5, 15);
         console.log("\n🔍 [BUSCA] Executando searchFaqs");
 
-        const results = await storage.searchFaqs(message, resolvedLimit);
+        const results = await storage.searchFaqs(userMessage, resolvedLimit);
         faqsFound = results.length;
 
         if (results.length > 0) {
@@ -353,7 +401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         logToolPayload({
           toolName: "searchFaqs",
-          args: { query: message, limit: resolvedLimit, intent },
+          args: { query: userMessage, limit: resolvedLimit, intent },
           resultCount: results.length,
           aiPayload: faqContext,
         });
@@ -367,19 +415,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedLimit = resolveLimit(undefined, 5, 15);
         console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
 
-        const hybridSearch = await storage.searchCatalogHybrid(message, resolvedLimit);
+        const hybridSearch = await storage.searchCatalogHybrid(userMessage, resolvedLimit);
         catalogItemsFound = hybridSearch.results.length;
         hybridResult = hybridSearch;
 
         logHybridStats("RAG catalog", hybridSearch);
 
-        const catalogPayload = buildCatalogPayload(message, hybridSearch);
+        const catalogPayload = buildCatalogPayload(userMessage, hybridSearch);
         contextSections.push(catalogPayload);
 
         logToolPayload({
           toolName: "searchCatalog",
           args: {
-            query: message,
+            query: userMessage,
             limit: resolvedLimit,
             intent,
             source: "hybrid",
@@ -397,7 +445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userAnswerPayload = [
         "Contexto consolidado (não mencione esta seção ao responder):",
         contextSections.join("\n\n"),
-        `Pergunta do usuário: ${message}`,
+        `Pergunta do usuário: ${userMessage}`,
       ].join("\n\n");
 
       const answerMessages: Message[] = [
