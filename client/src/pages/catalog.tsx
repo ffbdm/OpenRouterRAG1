@@ -446,7 +446,6 @@ function CatalogFormDialog({
 export default function CatalogPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<CatalogStatusFilter>("ativo");
-  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
@@ -479,7 +478,7 @@ export default function CatalogPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: number; payload: CatalogMutationPayload }) => {
-      const res = await apiRequest("PUT", `/api/catalog/${id}`, payload);
+      const res = await apiRequest("PUT", "/api/catalog/" + id, payload);
       return (await res.json()).item;
     },
     onSuccess: () => { toast({ title: "Sucesso", description: "Item atualizado." }); invalidateCatalog(); setFormOpen(false); },
@@ -487,7 +486,7 @@ export default function CatalogPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/catalog/${id}`);
+      await apiRequest("DELETE", "/api/catalog/" + id);
     },
     onSuccess: () => { toast({ title: "Sucesso", description: "Item removido/arquivado." }); invalidateCatalog(); setDeleteTarget(null); },
   });
@@ -517,28 +516,6 @@ export default function CatalogPage() {
           />
         </div>
         <div className="flex items-center gap-4 w-full md:w-auto">
-          {/* View Toggle */}
-          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border/50">
-            <Button
-              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-8 w-8 rounded-md"
-              onClick={() => setViewMode('grid')}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-8 w-8 rounded-md"
-              onClick={() => setViewMode('table')}
-            >
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="h-6 w-px bg-border hidden md:block" />
-
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <Select value={status} onValueChange={(v) => setStatus(v as CatalogStatusFilter)}>
@@ -557,9 +534,9 @@ export default function CatalogPage() {
 
       <div className="flex-1 overflow-y-auto no-scrollbar -mx-6 px-6 pb-20">
         {catalogQuery.isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="h-[280px] rounded-2xl bg-muted/20 animate-pulse" />
+          <div className="space-y-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-32 rounded-2xl bg-muted/20 animate-pulse" />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -568,130 +545,72 @@ export default function CatalogPage() {
             <p className="text-xl font-medium">Nenhum item encontrado</p>
             <p className="text-sm text-muted-foreground">Tente ajustar seus filtros ou crie um novo item.</p>
           </div>
-        ) : viewMode === 'table' ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="rounded-2xl border border-white/10 overflow-hidden glass-card"
-          >
-            <Table>
-              <TableHeader className="bg-muted/30">
-                <TableRow className="hover:bg-transparent border-white/10">
-                  <TableHead className="w-[300px]">Item</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Fabricante</TableHead>
-                  <TableHead>Preço</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id} className="hover:bg-muted/20 border-white/5 transition-colors">
-                    <TableCell>
-                      <div className="font-medium text-foreground">{item.name}</div>
-                      <p className="text-xs text-muted-foreground line-clamp-1">{item.description}</p>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{item.category}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{item.manufacturer}</TableCell>
-                    <TableCell className="text-sm font-semibold">{formatPriceBRL(item.price)}</TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === "ativo" ? "outline" : "secondary"} className={cn(
-                        item.status === 'ativo' ? "border-green-500/30 text-green-500 bg-green-500/5" : "text-muted-foreground"
-                      )}>
-                        {statusLabel(item.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setFormMode("edit"); setEditingItem(item); setFormOpen(true); }}>
-                            <Pencil className="mr-2 h-4 w-4" /> Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => { setFilesItem(item); setFilesDialogOpen(true); }}>
-                            <Paperclip className="mr-2 h-4 w-4" /> Arquivos
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item)}>
-                            <Trash2 className="mr-2 h-4 w-4" /> Remover
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </motion.div>
         ) : (
           <motion.div
             layout
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            className="flex flex-col gap-4"
           >
             <AnimatePresence>
               {items.map((item) => (
                 <motion.div
                   key={item.id}
                   layout
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                  className="group relative flex flex-col glass-card hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-2xl overflow-hidden border border-white/10"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className={cn(
+                    "group relative glass-card p-0 rounded-xl border border-white/10 overflow-hidden flex flex-col md:flex-row hover:border-primary/30 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5 cursor-pointer",
+                    item.status === 'arquivado' && "opacity-60 grayscale"
+                  )}
                 >
+                  {/* Status Indicator Strip */}
                   <div className={cn(
-                    "h-32 w-full bg-gradient-to-br p-6 flex items-center justify-center relative overflow-hidden",
-                    item.status === 'arquivado' ? "from-gray-800 to-gray-900 grayscale" : "from-blue-500/10 to-purple-500/10"
-                  )}>
-                    <div className="absolute top-3 right-3 z-10">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-black/20 text-white hover:bg-black/40"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setFormMode("edit"); setEditingItem(item); setFormOpen(true); }}>
-                            <Pencil className="mr-2 h-4 w-4" /> Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => { setFilesItem(item); setFilesDialogOpen(true); }}>
-                            <Paperclip className="mr-2 h-4 w-4" /> Arquivos
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item)}>
-                            <Trash2 className="mr-2 h-4 w-4" /> Remover
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <Package className={cn(
-                      "h-12 w-12 opacity-50 transition-transform duration-500 group-hover:scale-110",
-                      item.status === 'arquivado' ? "text-gray-500" : "text-primary"
-                    )} />
-                    {item.price > 0 && (
-                      <div className="absolute bottom-3 left-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg text-white text-xs font-semibold">
-                        {formatPriceBRL(item.price)}
+                    "w-full md:w-2 h-2 md:h-auto",
+                    item.status === 'ativo' ? "bg-gradient-to-b from-blue-500 to-purple-600" : "bg-muted"
+                  )} />
+
+                  <div className="flex-1 p-5 flex flex-col md:flex-row gap-4 md:items-center">
+                    {/* Main Info */}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-lg text-foreground truncate">{item.name}</h3>
+                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-normal text-muted-foreground bg-muted/50 border-0">
+                          {item.manufacturer || "N/A"}
+                        </Badge>
                       </div>
-                    )}
-                  </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2 md:line-clamp-1">{item.description || "Sem descrição..."}</p>
 
-                  <div className="flex-1 p-5 flex flex-col gap-2">
-                    <div className="flex justify-between items-start gap-2">
-                      <h3 className="font-semibold text-lg leading-tight line-clamp-1 group-hover:text-primary transition-colors pr-4">{item.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Badge variant="outline" className="text-xs border-primary/20 text-primary bg-primary/5">
+                          {item.category || "Geral"}
+                        </Badge>
+                        {item.tags.map((tag, i) => (
+                          <span key={i} className="text-[10px] text-muted-foreground flex items-center">
+                            <Tag className="w-3 h-3 mr-1 opacity-50" />
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{item.category || "Sem categoria"}</p>
-                    <p className="text-sm text-muted-foreground line-clamp-2 mt-1 min-h-[40px]">{item.description || "Sem descrição..."}</p>
 
-                    <div className="mt-auto pt-4 flex flex-wrap gap-1.5">
-                      {item.tags.slice(0, 3).map((tag, i) => (
-                        <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
-                          #{tag}
-                        </span>
-                      ))}
-                      {item.tags.length > 3 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">+{item.tags.length - 3}</span>
-                      )}
+                    {/* Price & Actions */}
+                    <div className="flex items-center justify-between md:justify-end gap-6 md:min-w-[200px] md:pl-6 md:border-l md:border-white/5">
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">Preço</p>
+                        <p className="text-xl font-bold font-display">{formatPriceBRL(item.price)}</p>
+                      </div>
+
+                      <div className="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-white/10" onClick={() => { setFormMode("edit"); setEditingItem(item); setFormOpen(true); }} title="Editar">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-white/10" onClick={() => { setFilesItem(item); setFilesDialogOpen(true); }} title="Arquivos">
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive" onClick={() => setDeleteTarget(item)} title="Excluir">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
