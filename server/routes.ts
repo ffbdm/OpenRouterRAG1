@@ -9,6 +9,7 @@ import { registerCatalogRoutes } from "./catalog-routes";
 import { registerInstructionRoutes } from "./instruction-routes";
 import { defaultInstructionSlugs, ensureDefaultInstructions, getDefaultInstructionContent } from "./instruction-defaults";
 import { normalizeIntent, planSearches, type ChatIntent } from "./chat-intents";
+import { registerWhatsAppRoutes } from "./whatsapp-routes";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -139,6 +140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await ensureDefaultInstructions();
   registerCatalogRoutes(app);
   registerInstructionRoutes(app);
+  registerWhatsAppRoutes(app);
 
   app.get("/api/logs/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");

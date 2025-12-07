@@ -37,6 +37,14 @@ flowchart TD
 
 - `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, máx. 20): número de mensagens recentes (user/assistant) que entram no contexto enviado ao LLM. A API aceita um array `history` e usa apenas as últimas mensagens nessa ordem, truncando cada conteúdo a ~1200 caracteres. Ajuste para balancear recall x custo de tokens.
 
+## Canal WhatsApp (Cloud API)
+
+- Rotas: `GET /webhooks/whatsapp` devolve `hub.challenge` quando `hub.verify_token` bate com `WHATSAPP_VERIFY_TOKEN`; `POST /webhooks/whatsapp` processa `entry[].changes[].value.messages[].text.body`.
+- Envs obrigatórias: `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` (para validar `X-Hub-Signature-256` com o corpo bruto), `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`; opcional `WHATSAPP_CHAT_BASE_URL` (default `http://localhost:${PORT}/api/chat`).
+- Fluxo: usa `message.id` para idempotência em cache em memória (~15 minutos) e deriva `sessionId` como `wa:{from}`; repassa o texto para `/api/chat` e envia a resposta via `POST https://graph.facebook.com/{version}/{phone_number_id}/messages` (default `v20.0`).
+- Erros de assinatura retornam `401`, payloads sem texto retornam `200 { status: "ignored" }`, duplicatas retornam `{ status: "duplicate" }`.
+- Teste rápido local: gere a assinatura com `printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WHATSAPP_APP_SECRET" | awk '{print \"sha256=\" $2}'` e envie com `curl -X POST http://localhost:3000/webhooks/whatsapp -H "Content-Type: application/json" -H "X-Hub-Signature-256: $SIGNATURE" -d "$BODY"`.
+
 ## Testes rápidos
 
 - Híbrido direto: `curl -X POST http://localhost:3000/api/rag/search -H "Content-Type: application/json" -d '{"query":"adubo foliar","limit":5}'`
