@@ -114,6 +114,27 @@ function buildHistorySection(history: ChatHistoryMessage[] | undefined, limit: n
   ].join("\n");
 }
 
+const QUERY_CONTEXT_MESSAGE_LIMIT = 2;
+const QUERY_CONTEXT_CHAR_LIMIT = 400;
+
+function buildQueryContextFromHistory(history: ChatHistoryMessage[] | undefined): string | undefined {
+  if (!history || history.length === 0) return undefined;
+
+  const recent = history
+    .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
+    .slice(-QUERY_CONTEXT_MESSAGE_LIMIT)
+    .map((item) => {
+      const trimmed = item.content.trim();
+      const truncated = trimmed.length > QUERY_CONTEXT_CHAR_LIMIT ? `${trimmed.slice(0, QUERY_CONTEXT_CHAR_LIMIT)}...` : trimmed;
+      const speaker = item.role === "assistant" ? "assistente" : "usuário";
+      return `${speaker}: ${truncated}`;
+    });
+
+  if (recent.length === 0) return undefined;
+
+  return `Contexto recente do chat (para buscas): ${recent.join(" | ")}`;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   await ensureDefaultInstructions();
   registerCatalogRoutes(app);
@@ -364,6 +385,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
 
       const historySection = buildHistorySection(history, chatHistoryLimit);
+      const queryContext = buildQueryContextFromHistory(history);
+      if (queryContext) {
+        console.log(`[CHAT] queryContext aplicado nas buscas: ${queryContext}`);
+      }
 
       const searchPlan = planSearches(intent);
       console.log(`[ROUTING] Tools planejadas: ${searchPlan.usedTools.join(", ") || "nenhuma"} | llmCalls=${searchPlan.llmCalls}`);
@@ -383,7 +408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedLimit = resolveLimit(undefined, 5, 15);
         console.log("\n🔍 [BUSCA] Executando searchFaqs");
 
-        const results = await storage.searchFaqs(userMessage, resolvedLimit);
+        const results = await storage.searchFaqs(userMessage, resolvedLimit, { queryContext });
         faqsFound = results.length;
 
         if (results.length > 0) {
@@ -401,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         logToolPayload({
           toolName: "searchFaqs",
-          args: { query: userMessage, limit: resolvedLimit, intent },
+          args: { query: userMessage, limit: resolvedLimit, intent, queryContext },
           resultCount: results.length,
           aiPayload: faqContext,
         });
@@ -415,7 +440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedLimit = resolveLimit(undefined, 5, 15);
         console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
 
-        const hybridSearch = await storage.searchCatalogHybrid(userMessage, resolvedLimit);
+        const hybridSearch = await storage.searchCatalogHybrid(userMessage, resolvedLimit, { queryContext });
         catalogItemsFound = hybridSearch.results.length;
         hybridResult = hybridSearch;
 
@@ -432,6 +457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             intent,
             source: "hybrid",
             timings: hybridSearch.timings,
+            queryContext,
           },
           resultCount: hybridSearch.results.length,
           aiPayload: catalogPayload,

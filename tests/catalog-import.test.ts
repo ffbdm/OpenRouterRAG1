@@ -53,7 +53,7 @@ class InMemoryCatalogStorage implements IStorage {
     throw new Error("not implemented");
   }
 
-  async searchFaqs(): Promise<Faq[]> {
+  async searchFaqs(_query: string, _limit: number, _options?: { queryContext?: string }): Promise<Faq[]> {
     return [];
   }
 
@@ -61,7 +61,7 @@ class InMemoryCatalogStorage implements IStorage {
     return this.items;
   }
 
-  async searchCatalogHybrid(): Promise<CatalogHybridSearchResult> {
+  async searchCatalogHybrid(_query: string, _limit: number, _options?: { queryContext?: string }): Promise<CatalogHybridSearchResult> {
     return {
       results: [],
       vectorCount: 0,

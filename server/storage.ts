@@ -110,9 +110,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  searchFaqs(query: string, limit: number): Promise<Faq[]>;
+  searchFaqs(query: string, limit: number, options?: { queryContext?: string }): Promise<Faq[]>;
   searchCatalog(query: string, limit: number): Promise<CatalogItem[]>;
-  searchCatalogHybrid(query: string, limit: number): Promise<CatalogHybridSearchResult>;
+  searchCatalogHybrid(query: string, limit: number, options?: { queryContext?: string }): Promise<CatalogHybridSearchResult>;
   listCatalogItems(params: {
     search?: string;
     status?: CatalogItem["status"] | "all";
@@ -136,6 +136,12 @@ export interface IStorage {
   createInstruction(instruction: InsertSystemInstruction): Promise<SystemInstruction>;
 }
 
+function combineQueryWithContext(query: string, context?: string, maxLength = 1200): string {
+  const combined = [query, context?.trim()].filter(Boolean).join(" ").trim();
+  if (!combined) return query;
+  return combined.length > maxLength ? combined.slice(0, maxLength) : combined;
+}
+
 export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -155,16 +161,22 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async searchFaqs(query: string, limit: number): Promise<Faq[]> {
+  async searchFaqs(query: string, limit: number, options?: { queryContext?: string }): Promise<Faq[]> {
     await ensureFaqQuestionNormalization();
 
-    const normalizedQuery = normalizeText(query);
-    const tokens = extractSearchTokens(query);
+    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+    const normalizedQuery = normalizeText(effectiveQuery);
+    const tokens = extractSearchTokens(effectiveQuery);
+
+    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
+    if (contextPreview) {
+      console.log(`[DB] searchFaqs :: queryContext => ${contextPreview.slice(0, 240)}`);
+    }
 
     console.log("[DB] searchFaqs :: tokens =>", tokens.length > 0 ? tokens : "nenhum (fallback)" );
 
     if (tokens.length === 0) {
-      const fallbackPattern = normalizedQuery ? `%${normalizedQuery}%` : `%${query}%`;
+      const fallbackPattern = normalizedQuery ? `%${normalizedQuery}%` : `%${effectiveQuery}%`;
       return db
         .select()
         .from(faqs)
@@ -255,26 +267,36 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async searchCatalogHybrid(query: string, limit: number): Promise<CatalogHybridSearchResult> {
+  async searchCatalogHybrid(query: string, limit: number, options?: { queryContext?: string }): Promise<CatalogHybridSearchResult> {
     const finalLimit = clampCatalogLimit(limit);
     const startedAt = Date.now();
 
+    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+
+    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
+    if (contextPreview) {
+      console.log(`[RAG] searchCatalogHybrid :: queryContext => ${contextPreview.slice(0, 240)}`);
+    }
+    if (effectiveQuery !== query) {
+      console.log(`[RAG] searchCatalogHybrid :: query+context aplicado => ${effectiveQuery.slice(0, 240)}`);
+    }
+
     const lexicalStartedAt = Date.now();
-    const lexicalResults = await this.searchCatalog(query, finalLimit);
+    const lexicalResults = await this.searchCatalog(effectiveQuery, finalLimit);
     const lexicalMs = Date.now() - lexicalStartedAt;
 
-    const lexicalHits = mapLexicalResults(lexicalResults, query);
+    const lexicalHits = mapLexicalResults(lexicalResults, effectiveQuery);
 
     let vectorResults: CatalogHybridHit[] = [];
     let vectorMs = 0;
     let embeddingUsed = false;
     let fallbackReason: string | undefined;
 
-    const embedding = await generateCatalogEmbedding(query);
+    const embedding = await generateCatalogEmbedding(effectiveQuery);
     if (embedding && embedding.length > 0) {
       embeddingUsed = true;
       const vectorStartedAt = Date.now();
-      const vectorQuery = await this.searchCatalogVector(embedding, query, finalLimit);
+      const vectorQuery = await this.searchCatalogVector(embedding, effectiveQuery, finalLimit);
       vectorMs = Date.now() - vectorStartedAt;
       vectorResults = vectorQuery.results;
 
