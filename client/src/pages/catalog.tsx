@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +36,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
@@ -48,8 +48,16 @@ import {
 } from "@/lib/catalog";
 import type { CatalogFile, CatalogItem, CatalogItemStatus, CatalogItemInput } from "@shared/schema";
 import { catalogItemStatusValues } from "@shared/schema";
-import { InstructionsPanel } from "@/components/InstructionsPanel";
-import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, UploadCloud, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Loader2, Paperclip, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, UploadCloud, XCircle, Package, Search, Filter, MoreHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const optionalText = z.preprocess(
   (value) => (value == null ? "" : typeof value === "string" ? value.trim() : String(value).trim()),
@@ -73,7 +81,6 @@ const catalogFormSchema = z.object({
 });
 
 type CatalogFormValues = z.infer<typeof catalogFormSchema>;
-
 type CatalogMutationPayload = CatalogItemInput;
 type CatalogImportRowError = {
   row: number;
@@ -100,7 +107,6 @@ const catalogImportMaxBytes = 5 * 1024 * 1024;
 
 function formatBytes(value: number | null | undefined): string {
   if (!value || value < 0) return "-";
-
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
@@ -125,9 +131,7 @@ function CatalogFilesDialog({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
-    if (!open) {
-      setSelectedFile(null);
-    }
+    if (!open) setSelectedFile(null);
   }, [open]);
 
   const filesQuery = useQuery({
@@ -135,13 +139,8 @@ function CatalogFilesDialog({
     enabled: Boolean(item?.id) && open,
     queryFn: async () => {
       if (!item) throw new Error("Item não selecionado");
-
       const res = await fetch(`/api/catalog/${item.id}/files`, { credentials: "include" });
-      if (!res.ok) {
-        const message = (await res.text()) || res.statusText;
-        throw new Error(message);
-      }
-
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
       return (await res.json()) as {
         files: CatalogFile[];
         limits?: { maxSizeBytes?: number; allowedMimeTypes?: string[] };
@@ -152,217 +151,114 @@ function CatalogFilesDialog({
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       if (!item) throw new Error("Item não encontrado para upload");
-
       const formData = new FormData();
       formData.append("file", file);
-
       const res = await fetch(`/api/catalog/${item.id}/files`, {
         method: "POST",
         body: formData,
         credentials: "include",
       });
-
-      if (!res.ok) {
-        const message = (await res.text()) || res.statusText;
-        throw new Error(message);
-      }
-
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
       return (await res.json()) as { file: CatalogFile };
     },
     onSuccess: () => {
-      toast({
-        title: "Arquivo enviado",
-        description: "Upload concluído com sucesso.",
-      });
-      if (item?.id) {
-        queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
-      }
+      toast({ title: "Arquivo enviado", description: "Upload concluído com sucesso." });
+      if (item?.id) queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
       setSelectedFile(null);
     },
     onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao enviar arquivo",
-        description: error instanceof Error ? error.message : "Não foi possível enviar o arquivo.",
-      });
+      toast({ variant: "destructive", title: "Erro ao enviar arquivo", description: error instanceof Error ? error.message : "Não foi possível enviar o arquivo." });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (fileId: number) => {
-      const res = await fetch(`/api/catalog/files/${fileId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const message = (await res.text()) || res.statusText;
-        throw new Error(message);
-      }
-
+      const res = await fetch(`/api/catalog/files/${fileId}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
       return (await res.json()) as { deleted: boolean };
     },
     onSuccess: () => {
-      if (item?.id) {
-        queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
-      }
-      toast({
-        title: "Arquivo removido",
-        description: "O arquivo foi excluído do catálogo.",
-      });
+      if (item?.id) queryClient.invalidateQueries({ queryKey: ["catalog-files", item.id] });
+      toast({ title: "Arquivo removido", description: "O arquivo foi excluído do catálogo." });
     },
     onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao remover arquivo",
-        description: error instanceof Error ? error.message : "Não foi possível remover o arquivo.",
-      });
+      toast({ variant: "destructive", title: "Erro ao remover arquivo", description: error instanceof Error ? error.message : "Não foi possível remover o arquivo." });
     },
   });
 
   const files = filesQuery.data?.files ?? [];
   const limits = filesQuery.data?.limits;
-
   const handleUpload = () => {
     if (!selectedFile) {
-      toast({
-        variant: "destructive",
-        title: "Selecione um arquivo",
-        description: "Escolha um arquivo para enviar para o item.",
-      });
+      toast({ variant: "destructive", title: "Selecione um arquivo", description: "Escolha um arquivo para enviar para o item." });
       return;
     }
-
     uploadMutation.mutate(selectedFile);
   };
-
   const acceptTypes = limits?.allowedMimeTypes?.join(",");
   const maxSizeLabel = limits?.maxSizeBytes ? `${(limits.maxSizeBytes / (1024 * 1024)).toFixed(1)}MB` : "10MB";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto glass border-white/10">
         <DialogHeader>
-          <DialogTitle>Arquivos do item</DialogTitle>
-          <DialogDescription>
-            Adicione arquivos de contexto para o item {item?.name}. Os uploads vão para o storage Vercel Blob.
-          </DialogDescription>
+          <DialogTitle className="text-xl font-display">Arquivos: {item?.name}</DialogTitle>
+          <DialogDescription>Gerencie arquivos e anexos deste item.</DialogDescription>
         </DialogHeader>
-
-        {!item && (
-          <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            Selecione um item para gerenciar arquivos.
-          </div>
-        )}
-
-        {item && (
-          <div className="space-y-4">
-            <div className="rounded-md border bg-muted/30 p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Upload de arquivo</p>
-                  <p className="text-xs text-muted-foreground">
-                    Tipos permitidos: {limits?.allowedMimeTypes?.join(", ") ?? "pdf, txt, doc, docx, md"} | Limite {maxSizeLabel}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                  <Input
-                    type="file"
-                    accept={acceptTypes}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      setSelectedFile(file ?? null);
-                    }}
-                  />
-                  <Button onClick={handleUpload} disabled={uploadMutation.isPending || !selectedFile}>
-                    {uploadMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    <UploadCloud className="mr-2 h-4 w-4" />
-                    Enviar
-                  </Button>
-                </div>
+        <div className="space-y-6 mt-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Upload de arquivo</p>
+                <p className="text-xs text-muted-foreground">Tipos: {limits?.allowedMimeTypes?.join(", ") ?? "pdf, doc, img"} | Max {maxSizeLabel}</p>
               </div>
-              {selectedFile && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Selecionado: {selectedFile.name} ({formatBytes(selectedFile.size)})
-                </p>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="file"
+                  accept={acceptTypes}
+                  className="max-w-xs bg-black/20 border-white/10"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                />
+                <Button onClick={handleUpload} disabled={uploadMutation.isPending || !selectedFile} className="glass-button">
+                  {uploadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+                  Enviar
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Arquivos Existentes</h3>
+              {filesQuery.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {files.map((file) => (
+                <div key={file.id} className="relative group p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{file.originalName}</p>
+                    <p className="text-xs text-muted-foreground">{formatBytes(file.sizeBytes)} • {new Date(file.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button asChild variant="ghost" size="icon" className="h-8 w-8 hover:bg-white/10">
+                      <a href={file.blobUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a>
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive/20 hover:text-destructive" onClick={() => deleteMutation.mutate(file.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {!filesQuery.isLoading && files.length === 0 && (
+                <div className="col-span-2 py-8 text-center text-muted-foreground text-sm border border-dashed border-white/10 rounded-xl">
+                  Nenhum arquivo encontrado.
+                </div>
               )}
             </div>
-
-            <div className="rounded-md border">
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <p className="text-sm font-medium">Arquivos enviados</p>
-                {filesQuery.isFetching && (
-                  <span className="text-xs text-muted-foreground">Atualizando...</span>
-                )}
-              </div>
-
-              <div className="p-4">
-                {filesQuery.isError && (
-                  <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    {filesQuery.error instanceof Error ? filesQuery.error.message : "Erro ao carregar arquivos."}
-                  </div>
-                )}
-
-                {filesQuery.isLoading && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Carregando arquivos...
-                  </div>
-                )}
-
-                {!filesQuery.isLoading && files.length === 0 && (
-                  <div className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                    <FileText className="h-4 w-4" />
-                    Nenhum arquivo enviado para este item.
-                  </div>
-                )}
-
-                {files.length > 0 && (
-                  <div className="space-y-3">
-                    {files.map((file) => (
-                      <div key={file.id} className="flex flex-col gap-3 rounded-md border px-3 py-2 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                            <FileText className="h-4 w-4" />
-                            {file.originalName}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {file.mimeType} · {formatBytes(file.sizeBytes)} · {new Date(file.createdAt).toLocaleString("pt-BR")}
-                          </div>
-                          {file.textPreview && (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {file.textPreview}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Button asChild variant="outline" size="sm">
-                            <a href={file.blobUrl} target="_blank" rel="noreferrer">
-                              <ExternalLink className="mr-2 h-4 w-4" />
-                              Abrir
-                            </a>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => deleteMutation.mutate(file.id)}
-                            disabled={deleteMutation.isPending}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Remover
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -391,23 +287,11 @@ function CatalogFormDialog({
 }) {
   const form = useForm<CatalogFormValues>({
     resolver: zodResolver(catalogFormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      category: "",
-      manufacturer: "",
-      price: 0,
-      status: "ativo",
-      tagsText: "",
-    },
+    defaultValues: { name: "", description: "", category: "", manufacturer: "", price: 0, status: "ativo", tagsText: "" },
   });
 
   useEffect(() => {
-    if (!open) {
-      form.reset();
-      return;
-    }
-
+    if (!open) { form.reset(); return; }
     if (initialItem) {
       form.reset({
         name: initialItem.name,
@@ -419,120 +303,37 @@ function CatalogFormDialog({
         tagsText: initialItem.tags.join(", "),
       });
     } else {
-      form.reset({
-        name: "",
-        description: "",
-        category: "",
-        manufacturer: "",
-        price: 0,
-        status: "ativo",
-        tagsText: "",
-      });
+      form.reset({ name: "", description: "", category: "", manufacturer: "", price: 0, status: "ativo", tagsText: "" });
     }
   }, [form, initialItem, open]);
 
   const aiAssistMutation = useMutation({
-    mutationFn: async (payload: {
-      name: string;
-      manufacturer: string;
-      description: string;
-      category: string;
-      price: number | null;
-      tags: string[];
-    }) => {
+    mutationFn: async (payload: any) => {
       const response = await apiRequest("POST", "/api/catalog/assist", payload);
       return (await response.json()) as CatalogAssistResponse;
     },
     onSuccess: (data) => {
       const suggestions = data.suggestions || {};
-      const current = form.getValues();
-      const updatedFields: string[] = [];
-
-      if (suggestions.description && !current.description.trim()) {
-        form.setValue("description", suggestions.description, { shouldDirty: true });
-        updatedFields.push("Descrição");
-      }
-
-      if (suggestions.category && !current.category.trim()) {
-        form.setValue("category", suggestions.category, { shouldDirty: true });
-        updatedFields.push("Categoria");
-      }
-
-      if (typeof suggestions.price === "number" && !form.getFieldState("price").isDirty) {
-        form.setValue("price", suggestions.price, { shouldDirty: true });
-        updatedFields.push("Preço");
-      }
-
-      if (Array.isArray(suggestions.tags) && suggestions.tags.length > 0) {
-        const existingTags = parseTagsInput(current.tagsText);
-        if (existingTags.length === 0) {
-          form.setValue("tagsText", suggestions.tags.join(", "), { shouldDirty: true });
-          updatedFields.push("Tags");
-        }
-      }
-
-      if (updatedFields.length === 0) {
-        toast({
-          title: "Nenhum campo atualizado",
-          description: data.message ?? "Os campos já estavam preenchidos ou a IA não trouxe sugestões novas.",
-        });
-        return;
-      }
-
-      const modelNote = data.model ? ` (modelo: ${data.model})` : "";
-      toast({
-        title: "Campos preenchidos com IA",
-        description: `Atualizado: ${updatedFields.join(", ")}${modelNote}`,
-      });
+      if (suggestions.description) form.setValue("description", suggestions.description, { shouldDirty: true });
+      if (suggestions.category) form.setValue("category", suggestions.category, { shouldDirty: true });
+      if (suggestions.price) form.setValue("price", suggestions.price, { shouldDirty: true });
+      if (suggestions.tags) form.setValue("tagsText", suggestions.tags.join(", "), { shouldDirty: true });
+      toast({ title: "Sugestões aplicadas", description: "Campos preenchidos com inteligência artificial." });
     },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Não foi possível completar com IA",
-        description: error instanceof Error ? error.message : "Falha ao obter sugestões.",
-      });
-    },
+    onError: (err) => toast({ variant: "destructive", title: "Erro na IA", description: "Não foi possível gerar sugestões." }),
   });
 
   const handleCompleteWithAi = () => {
-    const values = form.getValues();
-    const trimmedName = values.name.trim();
-    const trimmedManufacturer = values.manufacturer.trim();
-
-    if (!trimmedName) {
-      form.setError("name", { type: "manual", message: "Informe o nome para usar a IA." });
-    }
-
-    if (!trimmedManufacturer) {
-      form.setError("manufacturer", { type: "manual", message: "Informe o fabricante para usar a IA." });
-    }
-
-    if (!trimmedName || !trimmedManufacturer) {
-      toast({
-        variant: "destructive",
-        title: "Preencha Nome e Fabricante",
-        description: "Esses dois campos são obrigatórios para sugerir os demais.",
-      });
+    const { name, manufacturer, description, category, price, tagsText } = form.getValues();
+    if (!name.trim() || !manufacturer.trim()) {
+      toast({ variant: "destructive", title: "Campos necessários", description: "Preencha Nome e Fabricante para usar a IA." });
       return;
     }
-
-    const parsedTags = parseTagsInput(values.tagsText);
-    const price = form.getFieldState("price").isDirty && Number.isFinite(values.price)
-      ? Number(values.price)
-      : null;
-
-    aiAssistMutation.mutate({
-      name: trimmedName,
-      manufacturer: trimmedManufacturer,
-      description: values.description.trim(),
-      category: values.category.trim(),
-      price,
-      tags: parsedTags,
-    });
+    aiAssistMutation.mutate({ name, manufacturer, description, category, price: Number(price), tags: parseTagsInput(tagsText) });
   };
 
   const handleSubmit = (values: CatalogFormValues) => {
-    const payload: CatalogMutationPayload = {
+    onSubmit({
       name: values.name.trim(),
       description: values.description.trim(),
       category: values.category.trim(),
@@ -540,171 +341,97 @@ function CatalogFormDialog({
       price: values.price,
       status: values.status as CatalogItemStatus,
       tags: parseTagsInput(values.tagsText),
-    };
-
-    onSubmit(payload);
+    });
   };
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !isSubmitting && onOpenChange(value)}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(val) => !isSubmitting && onOpenChange(val)}>
+      <DialogContent className="max-w-3xl glass border-white/10 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? "Novo item de catálogo" : "Editar item"}</DialogTitle>
-          <DialogDescription>
-            Preencha os campos abaixo. Todos os textos devem estar em português e refletir o que será exibido aos usuários.
-          </DialogDescription>
+          <DialogTitle className="text-xl font-display">{mode === "create" ? "Novo Item" : "Editar Item"}</DialogTitle>
+          <DialogDescription>Preencha os dados do produto abaixo.</DialogDescription>
         </DialogHeader>
-
         <Form {...form}>
-          <form className="space-y-4" onSubmit={form.handleSubmit(handleSubmit)}>
-            <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Completar campos com IA</p>
-                  <p className="text-xs text-muted-foreground">
-                    Use Nome e Fabricante para sugerir os demais campos. Campos já preenchidos não serão sobrescritos.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleCompleteWithAi}
-                  disabled={aiAssistMutation.isPending || isSubmitting}
-                >
-                  {aiAssistMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Completar com IA
-                </Button>
+          <form className="space-y-5 mt-4" onSubmit={form.handleSubmit(handleSubmit)}>
+            <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-primary">Assistente de IA</p>
+                <p className="text-xs text-muted-foreground">Preencha Nome e Fabricante para autocompletar o resto.</p>
               </div>
+              <Button type="button" size="sm" onClick={handleCompleteWithAi} disabled={aiAssistMutation.isPending} className="glass-button">
+                {aiAssistMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Autocompletar
+              </Button>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nome</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex: Semente Premium Soja 64" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Categoria</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex: Sementes, Fertilizante" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="manufacturer"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Fabricante</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex: AgroVale" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Preço (R$)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        placeholder="0,00"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(Number(event.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
+            <div className="grid gap-5 md:grid-cols-2">
+              <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Descrição</FormLabel>
+                  <FormLabel>Nome do Produto</FormLabel>
+                  <FormControl><Input placeholder="Ex: Semente Soja Premium" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="category" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Categoria</FormLabel>
+                  <FormControl><Input placeholder="Ex: Grãos" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="manufacturer" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Fabricante</FormLabel>
+                  <FormControl><Input placeholder="Ex: AgroTech" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="price" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Preço (R$)</FormLabel>
                   <FormControl>
-                    <Textarea rows={3} placeholder="Fale sobre características e diferenciais." {...field} />
+                    <Input type="number" className="bg-white/5 border-white/10" {...field} onChange={e => field.onChange(Number(e.target.value))} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
-              )}
-            />
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="tagsText"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tags</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Separadas por vírgula (ex: sementes, soja)" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o status" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="ativo">Ativo</SelectItem>
-                        <SelectItem value="arquivado">Arquivado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              )} />
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
+            <FormField control={form.control} name="description" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Descrição</FormLabel>
+                <FormControl><Textarea rows={4} className="bg-white/5 border-white/10 resize-none" placeholder="Detalhes do produto..." {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <FormField control={form.control} name="tagsText" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tags (separadas por vírgula)</FormLabel>
+                  <FormControl><Input placeholder="soja, premium, safra 2024" className="bg-white/5 border-white/10" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="status" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl><SelectTrigger className="bg-white/5 border-white/10"><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="arquivado">Arquivado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+              <Button type="submit" disabled={isSubmitting} className="glass-button">
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {mode === "create" ? "Criar item" : "Salvar alterações"}
+                {mode === "create" ? "Criar Item" : "Salvar Alterações"}
               </Button>
             </DialogFooter>
           </form>
@@ -721,16 +448,10 @@ export default function CatalogPage() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CatalogItem | null>(null);
-  const [hardDelete, setHardDelete] = useState(false);
   const [filesItem, setFilesItem] = useState<CatalogItem | null>(null);
   const [filesDialogOpen, setFilesDialogOpen] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importErrors, setImportErrors] = useState<CatalogImportRowError[]>([]);
-  const [importResult, setImportResult] = useState<CatalogImportResult | null>(null);
-  const [isDraggingImport, setIsDraggingImport] = useState(false);
 
   const queryClient = useQueryClient();
-
   const catalogQuery = useQuery({
     queryKey: ["catalog", { search, status }],
     queryFn: async ({ queryKey }) => {
@@ -738,609 +459,177 @@ export default function CatalogPage() {
       const query = new URLSearchParams();
       if (params.search.trim()) query.set("search", params.search.trim());
       if (params.status && params.status !== "ativo") query.set("status", params.status);
-
-      const suffix = query.toString() ? `?${query.toString()}` : "";
-      const response = await apiRequest("GET", `/api/catalog${suffix}`);
-      const data = await response.json();
-      return (data.items ?? []) as CatalogItem[];
+      const res = await apiRequest("GET", `/api/catalog?${query.toString()}`);
+      return (await res.json()).items as CatalogItem[];
     },
   });
 
-  const invalidateCatalog = () => {
-    queryClient.invalidateQueries({ queryKey: ["catalog"] });
-  };
-
-  const downloadTemplateMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/catalog/import/template", { credentials: "include" });
-      if (!res.ok) {
-        const message = (await res.text()) || res.statusText;
-        throw new Error(message);
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "catalogo-template.xlsx";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Template baixado",
-        description: "Planilha pronta para preencher.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao baixar template",
-        description: error instanceof Error ? error.message : "Não foi possível gerar o template.",
-      });
-    },
-  });
-
-  const importMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/catalog/import", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      const contentType = res.headers.get("content-type") ?? "";
-      const isJson = contentType.includes("application/json");
-      const payload = isJson ? await res.json() : await res.text();
-
-      if (!res.ok) {
-        const message = isJson
-          ? (payload as { error?: string })?.error ?? "Erro ao importar catálogo"
-          : (payload as string) || "Erro ao importar catálogo";
-
-        const error = new Error(message) as Error & { details?: CatalogImportRowError[] };
-        if (isJson && Array.isArray((payload as { errors?: CatalogImportRowError[] })?.errors)) {
-          error.details = (payload as { errors?: CatalogImportRowError[] }).errors;
-        }
-
-        throw error;
-      }
-
-      return payload as CatalogImportResult;
-    },
-    onSuccess: (data) => {
-      setImportResult(data);
-      setImportErrors([]);
-      setImportFile(null);
-      toast({
-        title: "Importação concluída",
-        description: `Foram criados ${data.created} itens em ${formatDurationMs(data.durationMs)}.`,
-      });
-      invalidateCatalog();
-    },
-    onError: (error: Error & { details?: CatalogImportRowError[] }) => {
-      setImportResult(null);
-      setImportErrors(error.details ?? []);
-      toast({
-        variant: "destructive",
-        title: "Erro ao importar catálogo",
-        description: error.message || "Falha ao processar a planilha.",
-      });
-    },
-  });
+  const invalidateCatalog = () => queryClient.invalidateQueries({ queryKey: ["catalog"] });
 
   const createMutation = useMutation({
     mutationFn: async (payload: CatalogMutationPayload) => {
-      const response = await apiRequest("POST", "/api/catalog", payload);
-      const data = await response.json();
-      return data.item as CatalogItem;
+      const res = await apiRequest("POST", "/api/catalog", payload);
+      return (await res.json()).item;
     },
-    onSuccess: () => {
-      toast({
-        title: "Item criado",
-        description: "O item foi adicionado ao catálogo.",
-      });
-      invalidateCatalog();
-      setFormOpen(false);
-    },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao criar item",
-        description: error instanceof Error ? error.message : "Não foi possível criar o item.",
-      });
-    },
+    onSuccess: () => { toast({ title: "Sucesso", description: "Item criado." }); invalidateCatalog(); setFormOpen(false); },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: number; payload: CatalogMutationPayload }) => {
-      const response = await apiRequest("PUT", `/api/catalog/${id}`, payload);
-      const data = await response.json();
-      return data.item as CatalogItem;
+      const res = await apiRequest("PUT", `/api/catalog/${id}`, payload);
+      return (await res.json()).item;
     },
-    onSuccess: () => {
-      toast({
-        title: "Item atualizado",
-        description: "As alterações foram salvas.",
-      });
-      invalidateCatalog();
-      setFormOpen(false);
-      setEditingItem(null);
-    },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao atualizar item",
-        description: error instanceof Error ? error.message : "Não foi possível atualizar o item.",
-      });
-    },
+    onSuccess: () => { toast({ title: "Sucesso", description: "Item atualizado." }); invalidateCatalog(); setFormOpen(false); },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ id, hard }: { id: number; hard?: boolean }) => {
-      const suffix = hard ? "?hard=true" : "";
-      const response = await apiRequest("DELETE", `/api/catalog/${id}${suffix}`);
-      return await response.json();
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/catalog/${id}`);
     },
-    onSuccess: (data) => {
-      toast({
-        title: data?.deleted ? "Item removido" : "Item arquivado",
-        description: data?.deleted
-          ? "O item foi removido do catálogo."
-          : "O item foi arquivado e não aparecerá nas buscas.",
-      });
-      invalidateCatalog();
-      setDeleteTarget(null);
-      setHardDelete(false);
-    },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao remover item",
-        description: error instanceof Error ? error.message : "Não foi possível remover o item.",
-      });
-    },
+    onSuccess: () => { toast({ title: "Sucesso", description: "Item removido/arquivado." }); invalidateCatalog(); setDeleteTarget(null); },
   });
 
   const items = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
 
-  const openCreate = () => {
-    setFormMode("create");
-    setEditingItem(null);
-    setFormOpen(true);
-  };
-
-  const openFilesDialog = (item: CatalogItem) => {
-    setFilesItem(item);
-    setFilesDialogOpen(true);
-  };
-
-  const openEdit = (item: CatalogItem) => {
-    setFormMode("edit");
-    setEditingItem(item);
-    setFormOpen(true);
-  };
-
-  const onSubmitForm = (payload: CatalogMutationPayload) => {
-    if (formMode === "create") {
-      createMutation.mutate(payload);
-      return;
-    }
-
-    if (editingItem) {
-      updateMutation.mutate({ id: editingItem.id, payload });
-    }
-  };
-
-  const openDeleteDialog = (item: CatalogItem) => {
-    setDeleteTarget(item);
-    setHardDelete(false);
-  };
-
-  const handleFilesDialogChange = (open: boolean) => {
-    setFilesDialogOpen(open);
-    if (!open) {
-      setFilesItem(null);
-    }
-  };
-
-  const handleImportFile = (file: File | null) => {
-    setImportErrors([]);
-    setImportResult(null);
-
-    if (!file) {
-      setImportFile(null);
-      return;
-    }
-
-    if (file.size > catalogImportMaxBytes) {
-      toast({
-        variant: "destructive",
-        title: "Arquivo muito grande",
-        description: `Limite de ${(catalogImportMaxBytes / (1024 * 1024)).toFixed(1)}MB por planilha.`,
-      });
-      return;
-    }
-
-    const isValidMime = file.type === catalogImportMime || file.name.toLowerCase().endsWith(".xlsx");
-    if (!isValidMime) {
-      toast({
-        variant: "destructive",
-        title: "Formato inválido",
-        description: "Envie um arquivo .xlsx gerado a partir do template.",
-      });
-      return;
-    }
-
-    setImportFile(file);
-  };
-
-  const handleDropImport = (event: DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsDraggingImport(false);
-    const file = event.dataTransfer.files?.[0];
-    handleImportFile(file ?? null);
-  };
-
-  const submitImport = () => {
-    if (!importFile) {
-      toast({
-        variant: "destructive",
-        title: "Selecione um arquivo",
-        description: "Escolha a planilha .xlsx antes de enviar.",
-      });
-      return;
-    }
-
-    importMutation.mutate(importFile);
-  };
-
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 pt-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="container mx-auto p-6 max-w-7xl h-full flex flex-col">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Catálogo</h1>
-          <p className="text-sm text-muted-foreground">
-            Listagem e CRUD completo dos itens. Todos os textos exibidos devem estar em português.
-          </p>
+          <h1 className="text-3xl font-display font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">Catálogo</h1>
+          <p className="text-muted-foreground mt-1">Gerencie seu inventário de produtos e inteligência.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => catalogQuery.refetch()} disabled={catalogQuery.isFetching}>
-            {catalogQuery.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Atualizar
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Novo item
-          </Button>
+        <Button onClick={() => { setFormMode("create"); setEditingItem(null); setFormOpen(true); }} className="glass-button">
+          <Plus className="mr-2 h-5 w-5" /> Novo Item
+        </Button>
+      </div>
+
+      <div className="glass-card p-4 rounded-2xl mb-6 flex flex-col md:flex-row gap-4 items-center justify-between sticky top-4 z-30">
+        <div className="relative flex-1 w-full md:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nome, tag ou categoria..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 bg-black/5 border-black/5 dark:bg-white/5 dark:border-white/10 rounded-xl"
+          />
+        </div>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <Select value={status} onValueChange={(v) => setStatus(v as CatalogStatusFilter)}>
+            <SelectTrigger className="w-[140px] bg-transparent border-0 ring-0 shadow-none"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {statusFilters.map(sf => <SelectItem key={sf.value} value={sf.value}>{sf.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="h-4 w-px bg-border mx-2" />
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
+            {items.length} itens
+          </span>
         </div>
       </div>
 
-      <Card className="space-y-4 p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Importar catálogo em lote</p>
-            <p className="text-xs text-muted-foreground">
-              Envie uma planilha .xlsx seguindo o template. Limite de {(catalogImportMaxBytes / (1024 * 1024)).toFixed(1)}MB e 500 linhas úteis.
-            </p>
+      <div className="flex-1 overflow-y-auto no-scrollbar -mx-6 px-6 pb-20">
+        {catalogQuery.isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="h-[280px] rounded-2xl bg-muted/20 animate-pulse" />
+            ))}
           </div>
-          <div className="flex flex-col gap-2 md:flex-row">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadTemplateMutation.mutate()}
-              disabled={downloadTemplateMutation.isPending}
-            >
-              {downloadTemplateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Download className="mr-2 h-4 w-4" />
-              Baixar template
-            </Button>
-            <Button
-              size="sm"
-              onClick={submitImport}
-              disabled={!importFile || importMutation.isPending}
-            >
-              {importMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <UploadCloud className="mr-2 h-4 w-4" />
-              Enviar planilha
-            </Button>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">
+            <Package className="h-20 w-20 text-muted-foreground mb-4 opacity-20" />
+            <p className="text-xl font-medium">Nenhum item encontrado</p>
+            <p className="text-sm text-muted-foreground">Tente ajustar seus filtros ou crie um novo item.</p>
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Input
-            id="catalog-import-file"
-            type="file"
-            accept=".xlsx"
-            className="hidden"
-            onChange={(event) => handleImportFile(event.target.files?.[0] ?? null)}
-          />
-          <label
-            htmlFor="catalog-import-file"
-            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-center text-sm transition ${
-              isDraggingImport ? "border-primary bg-primary/5" : "border-muted-foreground/40"
-            }`}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setIsDraggingImport(true);
-            }}
-            onDragLeave={() => setIsDraggingImport(false)}
-            onDrop={handleDropImport}
+        ) : (
+          <motion.div
+            layout
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
           >
-            <UploadCloud className="h-5 w-5 text-primary" />
-            <div className="space-y-1">
-              <p className="font-medium text-foreground">Arraste e solte ou clique para selecionar o .xlsx</p>
-              <p className="text-xs text-muted-foreground">
-                Cabeçalho fixo: Nome, Descrição, Categoria, Fabricante, Preço, Status, Tags.
-              </p>
-            </div>
-
-            {importFile ? (
-              <p className="rounded-md bg-muted px-3 py-1 text-xs text-foreground">
-                {importFile.name} ({formatBytes(importFile.size)})
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Aceita apenas arquivos .xlsx
-              </p>
-            )}
-          </label>
-        </div>
-
-        {importResult && (
-          <div className="flex items-start gap-2 rounded-md border border-emerald-500/50 bg-emerald-500/5 p-3 text-sm text-emerald-700">
-            <CheckCircle2 className="mt-[2px] h-4 w-4" />
-            <div className="space-y-1">
-              <p className="font-medium">Importação concluída</p>
-              <p className="text-xs">
-                {importResult.created} item{importResult.created === 1 ? "" : "s"} criado{importResult.created === 1 ? "" : "s"} em {formatDurationMs(importResult.durationMs)}.
-              </p>
-              {importResult.sampleIds && importResult.sampleIds.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  IDs de exemplo: {importResult.sampleIds.slice(0, 5).join(", ")}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {importErrors.length > 0 && (
-          <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
-            <div className="flex items-center gap-2 font-medium">
-              <XCircle className="h-4 w-4" />
-              Erros encontrados ({importErrors.length})
-            </div>
-            <div className="space-y-1 text-xs text-destructive">
-              {importErrors.slice(0, 6).map((error) => (
-                <div key={`${error.row}-${error.message}`} className="rounded bg-white/40 px-2 py-1">
-                  Linha {error.row}: {error.message}
-                  {error.fields.length > 0 && (
-                    <span className="text-[11px] text-muted-foreground"> — campos: {error.fields.join(", ")}</span>
-                  )}
-                </div>
-              ))}
-              {importErrors.length > 6 && (
-                <p className="text-[11px] text-muted-foreground">Mostrando 6 de {importErrors.length} erros.</p>
-              )}
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card className="space-y-4 p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center">
-            <div className="flex flex-1 items-center gap-2">
-              <Input
-                placeholder="Buscar por nome, categoria ou tag..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Limpar busca"
-                disabled={!search}
-                onClick={() => setSearch("")}
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="status-filter" className="text-xs uppercase tracking-wide text-muted-foreground">
-                Status
-              </Label>
-              <Select value={status} onValueChange={(value) => setStatus(value as CatalogStatusFilter)}>
-                <SelectTrigger id="status-filter" className="w-[160px]">
-                  <SelectValue placeholder="Filtrar status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusFilters.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {items.length} item{items.length === 1 ? "" : "s"} listado{items.length === 1 ? "" : "s"}
-          </div>
-        </div>
-
-        {catalogQuery.isError && (
-          <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4" />
-            {catalogQuery.error instanceof Error
-              ? catalogQuery.error.message
-              : "Erro ao carregar o catálogo."}
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead>Fabricante</TableHead>
-                <TableHead>Preço</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {catalogQuery.isLoading && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Carregando catálogo...
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!catalogQuery.isLoading && items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex flex-col items-start gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                      <AlertCircle className="h-4 w-4" />
-                      Nenhum item encontrado com os filtros atuais. Cadastre um novo item ou ajuste a busca.
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-
+            <AnimatePresence>
               {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="max-w-[260px] align-top">
-                    <div className="font-medium text-foreground">{item.name}</div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">{item.category}</TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">{item.manufacturer}</TableCell>
-                  <TableCell className="align-top text-sm font-semibold">{formatPriceBRL(item.price)}</TableCell>
-                  <TableCell className="align-top">
-                    <Badge variant={item.status === "ativo" ? "default" : "outline"}>
-                      {statusLabel(item.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <div className="flex flex-wrap gap-1">
-                      {item.tags.length === 0 && (
-                        <Badge variant="secondary" className="flex items-center gap-1">
-                          <Tag className="h-3 w-3" />
-                          Sem tags
-                        </Badge>
-                      )}
-                      {item.tags.map((tag) => (
-                        <Badge key={tag} variant="secondary">
-                          {tag}
-                        </Badge>
+                <motion.div
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  whileHover={{ y: -5, transition: { duration: 0.2 } }}
+                  className="group relative flex flex-col glass-card hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-2xl overflow-hidden border border-white/10"
+                >
+                  <div className={cn(
+                    "h-32 w-full bg-gradient-to-br p-6 flex items-center justify-center relative overflow-hidden",
+                    item.status === 'arquivado' ? "from-gray-800 to-gray-900 grayscale" : "from-blue-500/10 to-purple-500/10"
+                  )}>
+                    <div className="absolute top-3 right-3 z-10">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-black/20 text-white hover:bg-black/40"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => { setFormMode("edit"); setEditingItem(item); setFormOpen(true); }}>
+                            <Pencil className="mr-2 h-4 w-4" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setFilesItem(item); setFilesDialogOpen(true); }}>
+                            <Paperclip className="mr-2 h-4 w-4" /> Arquivos
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Remover
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <Package className={cn(
+                      "h-12 w-12 opacity-50 transition-transform duration-500 group-hover:scale-110",
+                      item.status === 'arquivado' ? "text-gray-500" : "text-primary"
+                    )} />
+                    {item.price > 0 && (
+                      <div className="absolute bottom-3 left-3 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg text-white text-xs font-semibold">
+                        {formatPriceBRL(item.price)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 p-5 flex flex-col gap-2">
+                    <div className="flex justify-between items-start gap-2">
+                      <h3 className="font-semibold text-lg leading-tight line-clamp-1 group-hover:text-primary transition-colors pr-4">{item.name}</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{item.category || "Sem categoria"}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2 mt-1 min-h-[40px]">{item.description || "Sem descrição..."}</p>
+
+                    <div className="mt-auto pt-4 flex flex-wrap gap-1.5">
+                      {item.tags.slice(0, 3).map((tag, i) => (
+                        <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
+                          #{tag}
+                        </span>
                       ))}
+                      {item.tags.length > 3 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">+{item.tags.length - 3}</span>
+                      )}
                     </div>
-                  </TableCell>
-                  <TableCell className="align-top text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openFilesDialog(item)}>
-                        <Paperclip className="mr-2 h-4 w-4" />
-                        Arquivos
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => openDeleteDialog(item)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Remover
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                  </div>
+                </motion.div>
               ))}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </div>
 
-      <CatalogFilesDialog item={filesItem} open={filesDialogOpen} onOpenChange={handleFilesDialogChange} />
+      <CatalogFormDialog mode={formMode} open={formOpen} initialItem={editingItem} onOpenChange={setFormOpen} onSubmit={(pl) => formMode === "create" ? createMutation.mutate(pl) : updateMutation.mutate({ id: editingItem!.id, payload: pl })} isSubmitting={createMutation.isPending || updateMutation.isPending} />
+      <CatalogFilesDialog item={filesItem} open={filesDialogOpen} onOpenChange={setFilesDialogOpen} />
 
-      <CatalogFormDialog
-        mode={formMode}
-        open={formOpen}
-        initialItem={editingItem}
-        onOpenChange={setFormOpen}
-        onSubmit={onSubmitForm}
-        isSubmitting={createMutation.isPending || updateMutation.isPending}
-      />
-
-      <AlertDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null);
-            setHardDelete(false);
-          }
-        }}
-      >
-        <AlertDialogContent>
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="glass border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {hardDelete ? "Remover permanentemente?" : "Arquivar item?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>
-                {hardDelete
-                  ? "Esta ação remove o item do banco de dados. Não será possível recuperá-lo."
-                  : "O item será marcado como arquivado e sairá das buscas. Você pode restaurá-lo editando o status."}
-              </p>
-              {deleteTarget && (
-                <p className="rounded-md bg-muted px-3 py-2 text-sm text-foreground">
-                  {deleteTarget.name} — {deleteTarget.category}
-                </p>
-              )}
+            <AlertDialogTitle className="text-destructive">Remover Item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover <strong>{deleteTarget?.name}</strong>? Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
-
-          <div className="flex items-center gap-2 rounded-md border p-3">
-            <Switch id="hard-delete" checked={hardDelete} onCheckedChange={setHardDelete} />
-            <div className="space-y-0">
-              <Label htmlFor="hard-delete" className="text-sm font-medium">
-                Remover definitivamente
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Se desativado, o item apenas será arquivado.
-              </p>
-            </div>
-          </div>
-
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (deleteTarget) {
-                  deleteMutation.mutate({ id: deleteTarget.id, hard: hardDelete });
-                }
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {hardDelete ? "Remover" : "Arquivar"}
-            </AlertDialogAction>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>Remover</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

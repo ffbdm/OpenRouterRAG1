@@ -1,29 +1,34 @@
 import { InstructionsPanel } from "@/components/InstructionsPanel";
 import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Sparkles } from "lucide-react";
 
 export default function InstructionsPage() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8">
-      <header className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Console RAG</p>
-        <h1 className="text-2xl font-bold text-foreground">Central de Instruções</h1>
-        <p className="text-sm text-muted-foreground">
-          Revise e edite os prompts que controlam o comportamento do chat, do catálogo e das orientações globais do sistema.
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-8">
+      <header className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Sparkles className="h-4 w-4 text-primary" />
+          </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">System</p>
+        </div>
+        <h1 className="text-4xl font-display font-bold text-foreground">Instructions Center</h1>
+        <p className="text-lg text-muted-foreground max-w-2xl">
+          Manage the global prompts that drive the AI's behavior across the Chat and Catalog modules.
         </p>
       </header>
 
-      <Card className="border bg-card/40 p-4 text-sm text-muted-foreground">
-        <p>
-          Cada instrução salva aqui reflete imediatamente nas telas correspondentes. Use descrições claras, mantenha o conteúdo em português e registre decisões importantes.
+      <div className="glass-card p-6 rounded-2xl border-l-4 border-l-primary/50">
+        <p className="text-sm leading-relaxed text-muted-foreground/90">
+          <strong className="text-foreground">Note:</strong> Updates made here reflect immediately. Ensure your instructions are clear and in the target language (Portuguese) to maintain consistency.
         </p>
-      </Card>
+      </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fade-in" style={{ animationDelay: '100ms' }}>
         <InstructionsPanel
           scopes={["chat"]}
-          title="Prompts do chat"
-          description="Afetam o comportamento da IA nas conversas. O fluxo agora possui duas etapas (buscar dados e responder o usuário), cada uma com sua instrução dedicada."
+          title="Chat Prompts"
+          description="Control how the AI behaves during conversations. Define the persona, tone, and constraints."
         />
       </div>
     </div>

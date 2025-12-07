@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Bot, Boxes, NotebookPen, Terminal } from "lucide-react";
+import { Bot, Boxes, NotebookPen, Terminal, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import LogTerminal from "@/components/LogTerminal";
+import { AnimatePresence, motion } from "framer-motion";
 
 type NavLink = {
   href: string;
@@ -17,66 +18,69 @@ type NavLink = {
 const links: NavLink[] = [
   {
     href: "/",
-    label: "Chat RAG",
-    description: "Perguntas e respostas com base no banco",
+    label: "Chat",
+    description: "AI Assistant",
     icon: Bot,
   },
   {
     href: "/catalogo",
-    label: "Catálogo",
-    description: "Listar, criar e editar itens",
+    label: "Catalog",
+    description: "Manage Items",
     icon: Boxes,
   },
   {
     href: "/instrucoes",
-    label: "Instruções",
-    description: "Editar prompts globais do sistema",
+    label: "System",
+    description: "Global Prompts",
     icon: NotebookPen,
   },
 ];
 
 function NavButton({ link, isActive, isMobile }: { link: NavLink; isActive: boolean; isMobile: boolean }) {
   const Icon = link.icon;
-  
+
   if (isMobile) {
     return (
-      <Link
-        href={link.href}
-        className={cn(
-          "flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors",
-          isActive
-            ? "text-primary"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <Icon className="h-5 w-5" />
-        <span className="text-[10px] font-medium">{link.label}</span>
+      <Link href={link.href}>
+        <div className={cn(
+          "relative flex flex-col items-center justify-center gap-1 py-1 px-3 transition-all duration-300",
+          isActive ? "text-primary scale-110" : "text-muted-foreground/60 hover:text-foreground"
+        )}>
+          {isActive && (
+            <motion.div
+              layoutId="mobileEnv"
+              className="absolute inset-0 bg-primary/10 blur-xl rounded-full"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+          )}
+          <Icon className={cn("h-6 w-6 z-10", isActive && "drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]")} />
+          <span className="text-[10px] font-medium z-10">{link.label}</span>
+        </div>
       </Link>
     );
   }
 
   return (
-    <Link
-      href={link.href}
-      className={cn(
-        "group inline-flex min-w-[180px] flex-col gap-1 rounded-lg border px-3 py-2 transition hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm",
+    <Link href={link.href}>
+      <div className={cn(
+        "group relative flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-300 overflow-hidden",
         isActive
-          ? "border-primary bg-primary text-primary-foreground shadow-sm"
-          : "bg-card text-foreground"
-      )}
-    >
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Icon className="h-4 w-4" />
-        <span>{link.label}</span>
-      </div>
-      <p
-        className={cn(
-          "text-xs leading-tight",
-          isActive ? "text-primary-foreground/80" : "text-muted-foreground"
+          ? "text-primary-foreground bg-primary/90 shadow-[0_0_15px_rgba(59,130,246,0.4)]"
+          : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+      )}>
+        {isActive && (
+          <motion.div
+            layoutId="desktopNav"
+            className="absolute inset-0 bg-gradient-to-r from-primary/80 to-blue-600 z-0"
+            initial={false}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          />
         )}
-      >
-        {link.description}
-      </p>
+        <Icon className="h-4 w-4 z-10 relative" />
+        <span className="text-sm font-medium z-10 relative">{link.label}</span>
+      </div>
     </Link>
   );
 }
@@ -87,71 +91,81 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   return (
-    <div className="h-[100dvh] bg-background text-foreground flex flex-col overflow-hidden">
+    <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-transparent">
+      {/* Desktop/Tablet Navbar */}
       {!isMobile && (
-        <header className="border-b bg-card/50 backdrop-blur shrink-0">
-          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="inline-flex items-center gap-2 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
-                Console RAG
-              </span>
-              <span className="hidden h-4 w-px bg-border md:block" />
-              <span className="text-xs md:text-sm">Chat + Catálogo em um só lugar</span>
+        <header className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-4xl px-4">
+          <div className="glass rounded-full px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <Bot className="h-5 w-5 text-white" />
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">
+                  OpenRouter RAG
+                </h1>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
+
+            <nav className="flex items-center gap-1 bg-black/5 rounded-full p-1 border border-black/5 dark:bg-white/5 dark:border-white/5 backdrop-blur-sm">
               {links.map((link) => (
                 <NavButton
                   key={link.href}
                   link={link}
-                  isActive={
-                    link.href === "/"
-                      ? location === "/"
-                      : location.startsWith(link.href)
-                  }
+                  isActive={link.href === "/" ? location === "/" : location.startsWith(link.href)}
                   isMobile={false}
                 />
               ))}
-              <button
-                onClick={() => setIsTerminalOpen(true)}
-                className={cn(
-                  "group inline-flex min-w-[100px] flex-col gap-1 rounded-lg border px-3 py-2 transition hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm bg-card text-foreground"
-                )}
-              >
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Terminal className="h-4 w-4" />
-                  <span>Logs</span>
-                </div>
-                <p className="text-xs leading-tight text-muted-foreground">
-                  Ver terminal
-                </p>
-              </button>
-            </div>
+            </nav>
+
+            <button
+              onClick={() => setIsTerminalOpen(true)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <Terminal className="h-5 w-5" />
+            </button>
           </div>
         </header>
       )}
 
-      <main className={cn("flex-1 overflow-hidden", isMobile ? "pb-16" : "pb-10")}>{children}</main>
+      {/* Main Content with Transition */}
+      <main className={cn(
+        "flex-1 relative w-full h-full overflow-hidden",
+        !isMobile ? "pt-24 pb-6" : "pb-20"
+      )}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location}
+            initial={{ opacity: 0, y: 10, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.99 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="h-full w-full overflow-y-auto no-scrollbar px-4 md:px-0"
+          >
+            <div className="max-w-5xl mx-auto h-full">
+              {children}
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </main>
 
+      {/* Mobile Bottom Nav */}
       {isMobile && (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 h-16">
-          <div className="flex h-full items-center justify-around px-4">
+        <nav className="fixed bottom-4 left-4 right-4 z-50">
+          <div className="glass rounded-2xl p-2 flex items-center justify-around shadow-2xl border-white/20">
             {links.map((link) => (
               <NavButton
                 key={link.href}
                 link={link}
-                isActive={
-                  link.href === "/"
-                    ? location === "/"
-                    : location.startsWith(link.href)
-                }
+                isActive={link.href === "/" ? location === "/" : location.startsWith(link.href)}
                 isMobile={true}
               />
             ))}
             <button
               onClick={() => setIsTerminalOpen(true)}
-              className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors text-muted-foreground hover:text-foreground"
+              className="flex flex-col items-center justify-center gap-1 py-1 px-3 text-muted-foreground/60 hover:text-foreground transition-colors"
             >
-              <Terminal className="h-5 w-5" />
+              <Terminal className="h-6 w-6" />
               <span className="text-[10px] font-medium">Logs</span>
             </button>
           </div>
@@ -159,18 +173,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       )}
 
       <Sheet open={isTerminalOpen} onOpenChange={setIsTerminalOpen}>
-        <SheetContent side={isMobile ? "bottom" : "right"} className={isMobile ? "h-[80vh]" : "w-[600px] sm:w-[540px]"}>
-          <SheetHeader>
-            <SheetTitle>Logs do Sistema</SheetTitle>
-            <SheetDescription>
-              Acompanhe as atividades do servidor em tempo real.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-4 h-[calc(100%-80px)]">
-             <LogTerminal className="h-full" />
+        <SheetContent side={isMobile ? "bottom" : "right"} className="glass border-l-white/10 w-full sm:w-[540px] p-0">
+          <div className="h-full flex flex-col p-6">
+            <SheetHeader className="mb-4">
+              <SheetTitle className="text-2xl font-display">System Logs</SheetTitle>
+              <SheetDescription>
+                Real-time server activity monitoring.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 rounded-xl overflow-hidden border border-white/10 bg-black/40 shadow-inner">
+              <LogTerminal className="h-full" />
+            </div>
           </div>
         </SheetContent>
       </Sheet>
     </div>
   );
 }
+
