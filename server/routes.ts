@@ -148,8 +148,6 @@ async function summarizeHistory(
 
   const normalizedHistory = history
     .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
-    // Começa a partir da 2ª mensagem para evitar resumos dominados pela abertura.
-    .slice(1)
     .slice(-historySummaryMessageLimit)
     .map((item: ChatHistoryMessage) => {
       const trimmed = item.content.trim();
@@ -170,7 +168,7 @@ async function summarizeHistory(
     ...normalizedHistory.map((item) => ({ role: item.role, content: item.content })),
     {
       role: "user",
-      content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 90 palavras.",
+      content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 200 palavras.",
     },
   ];
 
