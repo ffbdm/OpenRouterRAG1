@@ -37,6 +37,9 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
 }
 
 const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
+const historySummaryTrigger = Math.max(chatHistoryLimit, 6);
+const historySummaryCharLimit = 800;
+const historySummaryMessageLimit = 10;
 
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
@@ -134,6 +137,74 @@ function buildQueryContextFromHistory(history: ChatHistoryMessage[] | undefined)
   if (recent.length === 0) return undefined;
 
   return `Contexto recente do chat (para buscas): ${recent.join(" | ")}`;
+}
+
+async function summarizeHistory(
+  history: ChatHistoryMessage[] | undefined,
+  apiKey: string,
+  model: string,
+): Promise<string | undefined> {
+  if (!history || history.length < historySummaryTrigger) return undefined;
+
+  const normalized = history
+    .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
+    .slice(-historySummaryMessageLimit)
+    .map((item) => {
+      const trimmed = item.content.trim();
+      const truncated = trimmed.length > historySummaryCharLimit
+        ? `${trimmed.slice(0, historySummaryCharLimit)}...`
+        : trimmed;
+
+      return { ...item, content: truncated };
+    });
+
+  if (normalized.length < historySummaryTrigger) return undefined;
+
+  const summaryMessages: Message[] = [
+    {
+      role: "system",
+      content: "Você cria resumos concisos da conversa recente entre usuário e assistente. Foque em pedidos, respostas dadas e pendências. Não invente dados e não repita o prompt.",
+    },
+    ...normalized.map((item) => ({ role: item.role, content: item.content })),
+    {
+      role: "user",
+      content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 90 palavras.",
+    },
+  ];
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+        "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: summaryMessages,
+        temperature: 0,
+        max_tokens: 220,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.warn(`[SUMMARY] Falha ao gerar resumo (status=${response.status}):`, errorBody);
+      return undefined;
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (typeof text !== "string" || !text.trim()) return undefined;
+
+    return text.trim();
+  } catch (error) {
+    console.warn("[SUMMARY] Erro ao gerar resumo do histórico:", error);
+    return undefined;
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -387,6 +458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
 
       const historySection = buildHistorySection(history, chatHistoryLimit);
+      const historySummary = await summarizeHistory(history, apiKey, answerModel);
       const queryContext = buildQueryContextFromHistory(history);
       if (queryContext) {
         console.log(`[CHAT] queryContext aplicado nas buscas: ${queryContext}`);
@@ -404,6 +476,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contextSections: string[] = [
         historySection,
       ];
+
+      if (historySummary) {
+        console.log(`[SUMMARY] Resumo automático do histórico habilitado (≥${historySummaryTrigger} mensagens).`);
+        contextSections.push(`Resumo automático da conversa: ${historySummary}`);
+      }
 
       if (searchPlan.runFaq) {
         databaseQueried = true;
