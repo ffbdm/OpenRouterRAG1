@@ -37,9 +37,10 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
 }
 
 const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
-const historySummaryTrigger = Math.max(chatHistoryLimit, 6);
+// Resumo: dispara a partir de 2 mensagens válidas e corta o número de mensagens pelo limite configurado.
+const historySummaryTrigger = 2;
 const historySummaryCharLimit = 800;
-const historySummaryMessageLimit = 10;
+const historySummaryMessageLimit = chatHistoryLimit;
 
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
