@@ -352,6 +352,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       };
 
+      console.log("[LOG] Contexto enviado para a primeira LLM (classificação):", JSON.stringify(classificationMessages, null, 2));
+
       let classifyData: unknown;
       let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
       let classificationModelUsed: string | undefined;
