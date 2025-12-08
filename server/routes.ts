@@ -146,10 +146,12 @@ async function summarizeHistory(
 ): Promise<string | undefined> {
   if (!history || history.length < historySummaryTrigger) return undefined;
 
-  const normalized = history
+  const normalizedHistory = history
     .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
+    // Começa a partir da 2ª mensagem para evitar resumos dominados pela abertura.
+    .slice(1)
     .slice(-historySummaryMessageLimit)
-    .map((item) => {
+    .map((item: ChatHistoryMessage) => {
       const trimmed = item.content.trim();
       const truncated = trimmed.length > historySummaryCharLimit
         ? `${trimmed.slice(0, historySummaryCharLimit)}...`
@@ -158,14 +160,14 @@ async function summarizeHistory(
       return { ...item, content: truncated };
     });
 
-  if (normalized.length < historySummaryTrigger) return undefined;
+  if (normalizedHistory.length < historySummaryTrigger) return undefined;
 
   const summaryMessages: Message[] = [
     {
       role: "system",
       content: "Você cria resumos concisos da conversa recente entre usuário e assistente. Foque em pedidos, respostas dadas e pendências. Não invente dados e não repita o prompt.",
     },
-    ...normalized.map((item) => ({ role: item.role, content: item.content })),
+    ...normalizedHistory.map((item) => ({ role: item.role, content: item.content })),
     {
       role: "user",
       content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 90 palavras.",
@@ -302,7 +304,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.OPENROUTER_MODEL_CLASSIFY_FALLBACK,
         DEFAULT_CHAT_MODEL,
       ].filter(Boolean)));
-      const answerModel = process.env.OPENROUTER_MODEL_ANSWER || DEFAULT_CHAT_MODEL;
+      const answerModel = process.env.OPENROUTER_MODEL_ANSWER ?? DEFAULT_CHAT_MODEL;
+      if (!answerModel) {
+        throw new Error("Defina OPENROUTER_MODEL_ANSWER ou OPENROUTER_MODEL/OPENROUTER_FALLBACK_MODEL.");
+      }
       if (!process.env.OPENROUTER_MODEL_CLASSIFY) {
         console.warn("[WARN] OPENROUTER_MODEL_CLASSIFY não definida; usando fallback configurado ou modelo padrão para classificação.");
       }
@@ -329,8 +334,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
+      const historySummary = await summarizeHistory(history, apiKey, answerModel);
+
+      const classificationHistoryMessages: Message[] = historySummary
+        ? [{ role: "system", content: `Resumo automático do histórico (ignora a 1ª mensagem): ${historySummary}` }]
+        : [];
+
       const classificationMessages: Message[] = [
         { role: "system", content: classificationContent },
+        ...classificationHistoryMessages,
         { role: "user", content: userMessage },
       ];
 
@@ -460,7 +472,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
 
       const historySection = buildHistorySection(history, chatHistoryLimit);
-      const historySummary = await summarizeHistory(history, apiKey, answerModel);
       const queryContext = buildQueryContextFromHistory(history);
       if (queryContext) {
         console.log(`[CHAT] queryContext aplicado nas buscas: ${queryContext}`);
