@@ -172,7 +172,7 @@ function normalizeVectorScore(distance?: number): number {
   }
 
   if (distance <= 0) {
-    return Math.min(10, -distance * 10);
+    return 10;
   }
 
   if (distance < 1) {
