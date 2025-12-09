@@ -10,6 +10,13 @@ type TextMessage = {
 const DEFAULT_API_VERSION = "v20.0";
 const DEFAULT_MESSAGE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_MESSAGE_CACHE = 500;
+const DEFAULT_HISTORY_LIMIT = 6;
+const MAX_HISTORY_LIMIT = 20;
+
+function resolveLimit(rawLimit?: number, fallback = DEFAULT_HISTORY_LIMIT, max = MAX_HISTORY_LIMIT): number {
+  if (!Number.isFinite(rawLimit) || !rawLimit) return fallback;
+  return Math.min(Math.max(1, Math.floor(rawLimit)), max);
+}
 
 function getRawBody(req: Request): Buffer | undefined {
   const rawBody = (req as Request & { rawBody?: unknown }).rawBody;
@@ -122,21 +129,23 @@ export class MessageIdCache {
   }
 }
 
-export type ChatCaller = (params: { sessionId: string; message: string }) => Promise<string>;
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+export type ChatCaller = (params: { sessionId: string; message: string; history?: ChatMessage[] }) => Promise<string>;
 
 export type WhatsAppSender = (params: { to: string; body: string }) => Promise<void>;
 
 export function createChatCaller(baseUrl: string): ChatCaller {
   const target = new URL("/api/chat", baseUrl);
 
-  return async ({ sessionId, message }) => {
+  return async ({ sessionId, message, history }) => {
     const response = await fetch(target, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-WhatsApp-Session": sessionId,
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, history }),
     });
 
     if (!response.ok) {
@@ -207,6 +216,8 @@ export function registerWhatsAppRoutes(app: Express, options?: RegisterOptions) 
   const chatBaseUrl = options?.chatBaseUrl ?? process.env.WHATSAPP_CHAT_BASE_URL ?? `http://localhost:${process.env.PORT || "3000"}`;
   const logger = options?.logger ?? console;
   const messageCache = options?.messageCache ?? new MessageIdCache(options?.now);
+  const historyLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
+  const sessionHistories = new Map<string, ChatMessage[]>();
 
   const callChat = options?.callChat ?? createChatCaller(chatBaseUrl);
   const sendMessage = options?.sendMessage ?? createWhatsAppSender({ accessToken, phoneNumberId, apiVersion });
@@ -257,12 +268,24 @@ export function registerWhatsAppRoutes(app: Express, options?: RegisterOptions) 
 
     messageCache.remember(incoming.id);
 
+    const sessionId = `wa:${incoming.from}`;
+    const existingHistory = sessionHistories.get(sessionId) ?? [];
+    const userTurn: ChatMessage = { role: "user", content: incoming.body };
+    const nextHistory = [...existingHistory, userTurn];
+
+    const trimHistory = (history: ChatMessage[]) => history.slice(-historyLimit);
+
     try {
-      const reply = await callChat({ sessionId: `wa:${incoming.from}`, message: incoming.body });
+      const reply = await callChat({ sessionId, message: incoming.body, history: trimHistory(nextHistory) });
+
+      const assistantTurn: ChatMessage = { role: "assistant", content: reply };
+      sessionHistories.set(sessionId, trimHistory([...nextHistory, assistantTurn]));
+
       await sendMessage({ to: incoming.from, body: reply });
 
       return res.status(200).json({ status: "sent" });
     } catch (error) {
+      // Se falhar, não persiste o turno do usuário para evitar histórico corrompido.
       messageCache.delete(incoming.id);
       logger.error("[WHATSAPP] Erro ao processar webhook:", error);
       return res.status(500).json({ error: "Erro ao processar mensagem do WhatsApp" });
