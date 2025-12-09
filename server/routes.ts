@@ -336,7 +336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const historySummary = await summarizeHistory(history, apiKey, answerModel);
 
       const classificationHistoryMessages: Message[] = historySummary
-        ? [{ role: "system", content: `Resumo automático do histórico (ignora a 1ª mensagem): ${historySummary}` }]
+        ? [{ role: "system", content: `Resumo automático do histórico: ${historySummary}` }]
         : [];
 
       const classificationMessages: Message[] = [
