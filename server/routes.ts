@@ -37,6 +37,10 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
 }
 
 const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
+// Resumo: dispara a partir de 2 mensagens válidas e corta o número de mensagens pelo limite configurado.
+const historySummaryTrigger = 2;
+const historySummaryCharLimit = 800;
+const historySummaryMessageLimit = chatHistoryLimit;
 
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
@@ -136,6 +140,74 @@ function buildQueryContextFromHistory(history: ChatHistoryMessage[] | undefined)
   return `Contexto recente do chat (para buscas): ${recent.join(" | ")}`;
 }
 
+async function summarizeHistory(
+  history: ChatHistoryMessage[] | undefined,
+  apiKey: string,
+  model: string,
+): Promise<string | undefined> {
+  if (!history || history.length < historySummaryTrigger) return undefined;
+
+  const normalizedHistory = history
+    .filter((item): item is ChatHistoryMessage => !!item && typeof item.content === "string" && !!item.content.trim())
+    .slice(-historySummaryMessageLimit)
+    .map((item: ChatHistoryMessage) => {
+      const trimmed = item.content.trim();
+      const truncated = trimmed.length > historySummaryCharLimit
+        ? `${trimmed.slice(0, historySummaryCharLimit)}...`
+        : trimmed;
+
+      return { ...item, content: truncated };
+    });
+
+  if (normalizedHistory.length < historySummaryTrigger) return undefined;
+
+  const summaryMessages: Message[] = [
+    {
+      role: "system",
+      content: "Você cria resumos concisos da conversa recente entre usuário e assistente. Foque em pedidos, respostas dadas e pendências. Não invente dados e não repita o prompt.",
+    },
+    ...normalizedHistory.map((item) => ({ role: item.role, content: item.content })),
+    {
+      role: "user",
+      content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 200 palavras.",
+    },
+  ];
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+        "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: summaryMessages,
+        temperature: 0,
+        max_tokens: 220,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.warn(`[SUMMARY] Falha ao gerar resumo (status=${response.status}):`, errorBody);
+      return undefined;
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (typeof text !== "string" || !text.trim()) return undefined;
+
+    return text.trim();
+  } catch (error) {
+    console.warn("[SUMMARY] Erro ao gerar resumo do histórico:", error);
+    return undefined;
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   await ensureDefaultInstructions();
   registerCatalogRoutes(app);
@@ -231,7 +303,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.OPENROUTER_MODEL_CLASSIFY_FALLBACK,
         DEFAULT_CHAT_MODEL,
       ].filter(Boolean)));
-      const answerModel = process.env.OPENROUTER_MODEL_ANSWER || DEFAULT_CHAT_MODEL;
+      const answerModel = process.env.OPENROUTER_MODEL_ANSWER ?? DEFAULT_CHAT_MODEL;
+      if (!answerModel) {
+        throw new Error("Defina OPENROUTER_MODEL_ANSWER ou OPENROUTER_MODEL/OPENROUTER_FALLBACK_MODEL.");
+      }
       if (!process.env.OPENROUTER_MODEL_CLASSIFY) {
         console.warn("[WARN] OPENROUTER_MODEL_CLASSIFY não definida; usando fallback configurado ou modelo padrão para classificação.");
       }
@@ -258,8 +333,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
+      const historySummary = await summarizeHistory(history, apiKey, answerModel);
+
+      const classificationHistoryMessages: Message[] = historySummary
+        ? [{ role: "system", content: `Resumo automático do histórico: ${historySummary}` }]
+        : [];
+
       const classificationMessages: Message[] = [
         { role: "system", content: classificationContent },
+        ...classificationHistoryMessages,
         { role: "user", content: userMessage },
       ];
 
@@ -280,6 +362,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           strict: true,
         },
       };
+
+      console.log("[LOG] Contexto enviado para a primeira LLM (classificação):", JSON.stringify(classificationMessages, null, 2));
 
       let classifyData: unknown;
       let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
@@ -404,6 +488,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contextSections: string[] = [
         historySection,
       ];
+
+      if (historySummary) {
+        console.log(`[SUMMARY] Resumo automático do histórico habilitado (≥${historySummaryTrigger} mensagens).`);
+        contextSections.push(`Resumo automático da conversa: ${historySummary}`);
+      }
 
       if (searchPlan.runFaq) {
         databaseQueried = true;
