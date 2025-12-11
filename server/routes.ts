@@ -42,6 +42,13 @@ const historySummaryTrigger = 2;
 const historySummaryCharLimit = 800;
 const historySummaryMessageLimit = chatHistoryLimit;
 
+const systemInstructionLogLimit = 50;
+
+function truncateForLog(content: string, limit = systemInstructionLogLimit): string {
+  if (content.length <= limit) return content;
+  return `${content.slice(0, limit)}...`;
+}
+
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
   const price = Number.isFinite(hit.item.price) ? `R$${hit.item.price.toFixed(2)}` : "preço indisponível";
@@ -363,7 +370,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       };
 
-      console.log("[LOG] Contexto enviado para a primeira LLM (classificação):", JSON.stringify(classificationMessages, null, 2));
+      const classificationMessagesForLog = classificationMessages.map((msg) =>
+        msg.role === "system" && msg.content === classificationContent
+          ? { ...msg, content: truncateForLog(msg.content) }
+          : msg,
+      );
+
+      console.log(
+        "[LOG] Contexto enviado para a primeira LLM (classificação):",
+        JSON.stringify(classificationMessagesForLog, null, 2),
+      );
 
       let classifyData: unknown;
       let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
@@ -572,8 +588,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[DEBUG] Mensagens enviadas para segunda chamada:");
       answerMessages.forEach((msg, idx) => {
+        const loggedContent = msg.role === "system" && msg.content === respondContent
+          ? truncateForLog(msg.content)
+          : msg.content;
         console.log(`  ${idx + 1}. Role: ${msg.role}`);
-        console.log(`     Content: ${msg.content}`);
+        console.log(`     Content: ${loggedContent}`);
       });
 
       const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
