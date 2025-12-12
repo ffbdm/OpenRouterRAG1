@@ -6,8 +6,8 @@ Quality today is enforced through strict TypeScript checks, manual E2E validatio
 
 ## Test Types
 - **Type-level/unit coverage:** `npm run check` runs the repo-wide TypeScript program which catches regressions in shared types, storage contracts, and React props.
-- **Manual integration checks:** Run `npm run dev`, submit Portuguese prompts that hit `searchFaqs` and `searchCatalog`, and verify the debug payload plus SSE logs reflect the expected DB counts.
-- **Ad-hoc scripts:** `scripts/seedCatalog.ts` and future drizzly scripts double as sanity checks for schema/migration health.
+- **Manual integration checks:** Run `npm run dev`, submit Portuguese prompts that hit `searchFaqsHybrid` and `searchCatalogHybrid`, and verify the debug payload plus SSE logs reflect the expected DB counts and fallback reasons.
+- **Ad-hoc scripts:** `scripts/seedCatalog.ts`, `scripts/seedCatalogEmbeddings.ts`, `scripts/seedFaqEmbeddings.ts` and debug scripts double as sanity checks for schema/embedding health.
 - **Planned automation:** When time allows, add Vitest or Jest for storage utilities and Playwright smoke tests for the chat UI/log terminal.
 
 ## Running Tests
@@ -26,7 +26,7 @@ Quality today is enforced through strict TypeScript checks, manual E2E validatio
 
 ## Troubleshooting
 - **Missing env vars:** If `npm run dev` fails immediately, confirm `DATABASE_URL` and `OPENROUTER_API_KEY` are exported; the server hard-fails when they are absent.
-- **Tokenization edge cases:** When `searchFaqs` returns zero rows, inspect the server logs for the normalized tokens to decide whether to adjust the query or seed data.
+- **Tokenization edge cases:** When `searchFaqsHybrid` falls back or returns zero rows, inspect the server logs for normalized tokens and hybrid stats to decide whether to adjust the query or seed data.
 - **SSE disconnects:** Browser dev tools throttling can pause `/api/logs/stream`; reloading the UI replays buffered logs.
 - **Long-running builds:** If `npm run build` stalls, ensure the client bundle was cleaned (`rm -rf dist`) and esbuild is installed (pnpm/npm sometimes skip optional deps).
 

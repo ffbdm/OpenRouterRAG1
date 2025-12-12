@@ -12,12 +12,12 @@ flowchart TD
     Classify --> Route{Intent}
 
     Route -->|OTHER| NoSearch[Nenhuma busca<br/>contexto vazio]
-    Route -->|FAQ| FAQ[searchFaqs → Postgres]
+    Route -->|FAQ| FAQ[searchFaqsHybrid → merge]
     Route -->|CATALOG| Catalog[searchCatalogHybrid → merge]
     Route -->|MIST| FAQ
     Route -->|MIST| Catalog
 
-    FAQ --> FAQCtx[Contexto de FAQs<br/>+ logToolPayload]
+    FAQ --> FAQCtx[Contexto de FAQs<br/>logToolPayload + logFaqHybridStats]
     Catalog --> CatalogCtx[Contexto do catálogo<br/>logToolPayload + logHybridStats]
     NoSearch --> FinalPrep
     FAQCtx --> FinalPrep[Consolida contexto<br/>+ instrução responder]
@@ -29,13 +29,19 @@ flowchart TD
 
 - O payload do chat inclui `history` (user/assistant) com as últimas interações; o backend limita o número de mensagens usadas no contexto via `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, máx. 20) e trunca cada uma a ~1200 caracteres para evitar estourar tokens.
 - Chamada #1 (classificação) instrui a IA a retornar **apenas uma palavra** (`FAQ`, `CATALOG`, `MIST`, `OTHER`), registrando o modelo usado (`OPENROUTER_MODEL_CLASSIFY`, `OPENROUTER_MODEL_CLASSIFY_FALLBACK` ou fallback padrão).
-- O backend decide quais buscas executar com base na intenção (`searchFaqs`, `searchCatalogHybrid`, ambos ou nenhum), monta um único contexto e registra logs (`classification=...`, `usedTools`, `llmCalls=0/1/2`, `logToolPayload`, `logHybridStats`).
+- O backend decide quais buscas executar com base na intenção (`searchFaqsHybrid`, `searchCatalogHybrid`, ambos ou nenhum), monta um único contexto e registra logs (`classification=...`, `usedTools`, `llmCalls=0/1/2`, `logToolPayload`, `logFaqHybridStats`, `logHybridStats`).
 - Chamada #2 (`OPENROUTER_MODEL_ANSWER`) recebe somente o contexto consolidado como mensagens `system` e o texto do usuário; **não usa tools** e não pode mencionar a palavra de intenção.
 - O `debug` da resposta inclui a intenção detectada, modelos usados (classify/answer), flags de banco, contagens de FAQs/itens, `ragSource`, `usedTools` e `llmCalls` coerente com as buscas disparadas.
 
 ## Variáveis de ambiente
 
 - `CHAT_HISTORY_CONTEXT_LIMIT` (default 6, máx. 20): número de mensagens recentes (user/assistant) que entram no contexto enviado ao LLM. A API aceita um array `history` e usa apenas as últimas mensagens nessa ordem, truncando cada conteúdo a ~1200 caracteres. Ajuste para balancear recall x custo de tokens.
+- `OPENROUTER_API_KEY`: necessário para gerar embeddings; sem ele, as buscas híbridas caem para o fallback lexical.
+- `FAQ_HYBRID_ENABLED` (default true): ativa busca híbrida (lexical + vetorial) de FAQs; defina `false` para forçar apenas lexical.
+- `FAQ_VECTOR_THRESHOLD` (default -0.5): filtro de similaridade na busca vetorial de FAQs (menor = mais próximo).
+- `FAQ_VECTOR_WEIGHT` / `FAQ_LEXICAL_WEIGHT` (default 6/4): pesos no merge quando `HYBRID_SEARCH_ENHANCED=true`.
+- `FAQ_SNIPPET_LIMIT` (default 220): limite de caracteres do snippet das FAQs usado no contexto/debug.
+- `HYBRID_SEARCH_ENHANCED` (default false): habilita merge ponderado (FAQ e catálogo); se `false`, usa dedupe simples com prioridade vetorial.
 
 ## Canal WhatsApp (Cloud API)
 
@@ -49,6 +55,8 @@ flowchart TD
 
 - Híbrido direto: `curl -X POST http://localhost:3000/api/rag/search -H "Content-Type: application/json" -d '{"query":"adubo foliar","limit":5}'`
 - Chat end-to-end: perguntar sobre um produto; o retorno inclui `debug` com flags do RAG.
+- Backfill FAQ embeddings: `npx tsx scripts/seedFaqEmbeddings.ts`
+- Debug FAQ híbrido: `npx tsx scripts/debugFaqHybrid.ts "sua pergunta aqui"`
 
 ## Painel de instruções editável
 

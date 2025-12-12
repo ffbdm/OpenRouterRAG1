@@ -83,8 +83,8 @@ test("mergeCatalogResults prioriza sinais cultura + tratamento quando enhanced",
   const preferred = buildItem(21, "Pesticida Protege Uva");
   const vectorFirst = buildItem(22, "Fungicida Tino");
   const vectorHits: CatalogHybridHit[] = [
-    { item: vectorFirst, source: "file", score: -0.25 },
-    { item: buildItem(23, "Outro Vetorial"), source: "file", score: -0.2 },
+    { item: vectorFirst, source: "file", score: 0.9 },
+    { item: buildItem(23, "Outro Vetorial"), source: "file", score: 0.8 },
   ];
 
   const lexicalHits: CatalogHybridHit[] = [

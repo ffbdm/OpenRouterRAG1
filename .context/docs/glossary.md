@@ -17,7 +17,7 @@ List project-specific terminology, acronyms, domain entities, and user personas.
 ## Domain Rules & Invariants
 - Responses must remain in Portuguese with concise, direct tone (enforced by the system prompt in `server/routes.ts`).
 - Catalog searches should only surface items with `status = 'ativo'`; archived entries stay hidden unless explicitly requested in future iterations.
-- FAQ queries normalize diacritics and casing before hitting the database to handle plural/singular variations documented in `plans/searchFaqsImprovement.prompt.md`.
+- FAQ queries normalize diacritics and casing and use hybrid retrieval (lexical + pgvector) when embeddings are available to handle paraphrases and plural/singular variations documented in `plans/searchFaqsImprovement.prompt.md`.
 - Debug metadata returned to the UI (counts, tool usage) should never include sensitive env information—only aggregate telemetry.
 
 <!-- agent-readonly:guidance -->
