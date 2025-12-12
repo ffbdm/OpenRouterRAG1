@@ -6,7 +6,7 @@ The system is a single TypeScript workspace that bundles a Vite-powered React cl
 ## System Architecture Overview
 - **Topology:** Monorepo + monolith. Express owns HTTP ingress, persistence access, and AI orchestration. The React SPA is bundled alongside the API.
 - **Deployment:** `npm run build` emits `dist/public` for the client and `dist/index.js` for the server (esbuild). Vercel can serve the static assets while the Node handler runs on the same target.
-- **Request path:** The SPA posts `/api/chat` → Express logs request metadata → envia imediatamente a primeira chamada ao OpenRouter com tools `searchFaqs`/`searchCatalog` em modo `auto` → trata tool callbacks consultando Postgres → executa a segunda chamada com o contexto retornado → responde ao SPA e transmite logs via `/api/logs/stream`.
+- **Request path:** The SPA posts `/api/chat` → Express logs request metadata → classifica intenção via OpenRouter → consulta Postgres com `searchFaqsHybrid`/`searchCatalogHybrid` conforme o plano → executa a segunda chamada com o contexto retornado → responde ao SPA e transmite logs via `/api/logs/stream`.
 
 ## Core System Components
 - **React SPA (`client/`):** Chat UI, log terminal, hooks, and shadcn UI primitives. Talks to the API via `apiRequest` and renders SSE logs.
@@ -16,7 +16,7 @@ The system is a single TypeScript workspace that bundles a Vite-powered React cl
 
 ## Internal System Boundaries
 - **Shared schema contract:** Types from `shared/` are the single source for Drizzle + Zod, ensuring Express handlers, scripts, and migrations agree on field names/enums.
-- **Storage interface:** `IStorage` abstracts Postgres access so the router interacts via `searchFaqs`/`searchCatalog` without touching Drizzle internals.
+- **Storage interface:** `IStorage` abstracts Postgres access so the router interage via `searchFaqs` (híbrido quando habilitado) / `searchCatalogHybrid` sem tocar Drizzle diretamente.
 - **Tool orchestration seam:** `routes.ts` is the only module aware of OpenRouter tool schemas; all text processing and data access happens in storage utilities to ease testing/swapping.
 - **Client/server contract:** React only knows about `/api/chat` and `/api/logs/stream`, keeping UI changes isolated from backend prompt logic.
 
@@ -50,9 +50,9 @@ sequenceDiagram
 
 	U->>SPA: Prompt
 	SPA->>API: POST /api/chat { message }
-	API-->>OR: Chat completion (tools=searchFaqs/searchCatalog)
-	OR-->>API: Tool call request
-	API-->>DB: searchFaqs/searchCatalog
+	API-->>OR: Chat completion (classify/answer)
+	OR-->>API: Intent/answer response
+	API-->>DB: searchFaqsHybrid/searchCatalogHybrid
 	DB-->>API: Rows + metadata
 	API-->>OR: Second completion with retrieved context
 	OR-->>API: Final answer

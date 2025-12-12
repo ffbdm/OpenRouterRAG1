@@ -10,6 +10,7 @@
     "check": "tsc",
     "test": "tsx --test \"tests/**/*.test.ts\"",
     "seed:embeddings": "tsx scripts/seedCatalogEmbeddings.ts",
+    "seed:faq-embeddings": "tsx scripts/seedFaqEmbeddings.ts",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

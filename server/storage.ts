@@ -1,6 +1,7 @@
 import {
   users,
   faqs,
+  faqEmbeddings,
   catalogItems,
   catalogFiles,
   catalogItemEmbeddings,
@@ -9,6 +10,7 @@ import {
   type InsertUser,
   type Faq,
   type InsertFaq,
+  type InsertFaqEmbedding,
   type CatalogItem,
   type CatalogItemInput,
   type CatalogFile,
@@ -23,6 +25,8 @@ import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
 import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
+import { clampFaqLimit, mapFaqLexicalResults, mergeFaqResults, type FaqHybridHit, type FaqHybridSearchResult } from "./faq-hybrid";
+import { buildFaqEmbeddingContent, buildFaqSnippet } from "./faq-embedding-utils";
 
 let faqNormalizationEnsured = false;
 
@@ -148,13 +152,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchFaqs(query: string, limit: number, options?: { queryContext?: string }): Promise<Faq[]> {
+    const hybridEnabled = process.env.FAQ_HYBRID_ENABLED !== "false";
+    if (!hybridEnabled) {
+      const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+      return this.searchFaqsLexical(effectiveQuery, limit, options?.queryContext);
+    }
+
+    const hybridSearch = await this.searchFaqsHybrid(query, limit, options);
+    return hybridSearch.results.map((hit) => hit.item);
+  }
+
+  private async searchFaqsLexical(effectiveQuery: string, limit: number, queryContext?: string): Promise<Faq[]> {
     await ensureFaqQuestionNormalization();
 
-    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
     const normalizedQuery = normalizeText(effectiveQuery);
     const tokens = extractSearchTokens(effectiveQuery);
 
-    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
+    const contextPreview = queryContext?.replace(/\s+/g, " ").trim();
     if (contextPreview) {
       console.log(`[DB] searchFaqs :: queryContext => ${contextPreview.slice(0, 240)}`);
     }
@@ -167,10 +181,10 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(faqs)
         .where(
-        or(
-          ilike(faqs.questionNormalized, fallbackPattern),
-          ilike(faqs.answer, fallbackPattern)
-        )
+          or(
+            ilike(faqs.questionNormalized, fallbackPattern),
+            ilike(faqs.answer, fallbackPattern),
+          ),
         )
         .limit(limit);
     }
@@ -178,8 +192,8 @@ export class DatabaseStorage implements IStorage {
     const tokenConditions = tokens.map((token) =>
       or(
         ilike(faqs.questionNormalized, `%${token}%`),
-        ilike(faqs.answer, `%${token}%`)
-      )
+        ilike(faqs.answer, `%${token}%`),
+      ),
     );
 
     return db
@@ -187,6 +201,65 @@ export class DatabaseStorage implements IStorage {
       .from(faqs)
       .where(or(...tokenConditions))
       .limit(limit);
+  }
+
+  async searchFaqsHybrid(query: string, limit: number, options?: { queryContext?: string }): Promise<FaqHybridSearchResult> {
+    const finalLimit = clampFaqLimit(limit);
+    const startedAt = Date.now();
+
+    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+
+    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
+    if (contextPreview) {
+      console.log(`[RAG] searchFaqsHybrid :: queryContext => ${contextPreview.slice(0, 240)}`);
+    }
+    if (effectiveQuery !== query) {
+      console.log(`[RAG] searchFaqsHybrid :: query+context aplicado => ${effectiveQuery.slice(0, 240)}`);
+    }
+
+    const lexicalStartedAt = Date.now();
+    const lexicalResults = await this.searchFaqsLexical(effectiveQuery, finalLimit, options?.queryContext);
+    const lexicalMs = Date.now() - lexicalStartedAt;
+
+    const lexicalHits = mapFaqLexicalResults(lexicalResults, effectiveQuery);
+
+    let vectorResults: FaqHybridHit[] = [];
+    let vectorMs = 0;
+    let embeddingUsed = false;
+    let fallbackReason: string | undefined;
+
+    const embedding = await generateCatalogEmbedding(effectiveQuery);
+    if (embedding && embedding.length > 0) {
+      embeddingUsed = true;
+      const vectorStartedAt = Date.now();
+      const vectorQuery = await this.searchFaqVector(embedding, effectiveQuery, finalLimit);
+      vectorMs = Date.now() - vectorStartedAt;
+      vectorResults = vectorQuery.results;
+
+      if (vectorQuery.error) {
+        fallbackReason = "vector-query-error";
+      }
+    } else {
+      fallbackReason = embeddingsEnabled() ? "embedding-generation-failed" : "embedding-disabled";
+    }
+
+    const mergeStartedAt = Date.now();
+    const results = mergeFaqResults(vectorResults, lexicalHits, finalLimit);
+    const mergeMs = Date.now() - mergeStartedAt;
+
+    return {
+      results,
+      vectorCount: vectorResults.length,
+      lexicalCount: lexicalHits.length,
+      embeddingUsed,
+      fallbackReason,
+      timings: {
+        vectorMs,
+        lexicalMs,
+        mergeMs,
+        totalMs: Date.now() - startedAt,
+      },
+    };
   }
 
   async searchCatalog(query: string, limit: number): Promise<CatalogItem[]> {
@@ -202,6 +275,53 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .limit(limit);
+  }
+
+  private async searchFaqVector(queryEmbedding: number[], query: string, limit: number): Promise<{ results: FaqHybridHit[]; error?: string }> {
+    if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+      return { results: [] };
+    }
+
+    const embeddingParam = buildVectorParam(queryEmbedding);
+    const distance = sql<number>`faq_embeddings.embedding <#> ${embeddingParam}`;
+
+    const threshold = Number(process.env.FAQ_VECTOR_THRESHOLD ?? -0.5);
+    const whereClauses: SQL[] = [];
+    if (Number.isFinite(threshold)) {
+      whereClauses.push(sql`${distance} <= ${threshold}`);
+      console.log(`[VECTOR] FAQ threshold aplicado: score <= ${threshold}`);
+    }
+
+    try {
+      const rows = await db
+        .select({
+          faq: faqs,
+          content: faqEmbeddings.content,
+          score: distance,
+        })
+        .from(faqEmbeddings)
+        .innerJoin(faqs, eq(faqEmbeddings.faqId, faqs.id))
+        .where(whereClauses.length > 0 ? and(...whereClauses) : sql`true`)
+        .orderBy(distance)
+        .limit(limit);
+
+      const results = rows.map((row) => ({
+        item: row.faq,
+        source: "embedding" as const,
+        score: row.score,
+        snippet: buildFaqSnippet(row.content),
+      }));
+
+      if (results.length > 0) {
+        const scores = results.map((r) => r.score?.toFixed(4) ?? "N/A").join(", ");
+        console.log(`[VECTOR] FAQ scores filtrados (${results.length}): ${scores}`);
+      }
+
+      return { results };
+    } catch (error) {
+      console.warn("[DB] Falha na busca vetorial de FAQs:", error);
+      return { results: [], error: error instanceof Error ? error.message : "unknown" };
+    }
   }
 
   private async searchCatalogVector(queryEmbedding: number[], query: string, limit: number): Promise<{ results: CatalogHybridHit[]; error?: string }> {
@@ -468,6 +588,11 @@ export class DatabaseStorage implements IStorage {
         questionNormalized: normalizedQuestion,
       })
       .returning();
+
+    this.generateFaqEmbedding(faq).catch((error) => {
+      console.warn(`[DB] Falha ao gerar embedding da nova FAQ ${faq.id}:`, error);
+    });
+
     return faq;
   }
 
@@ -559,6 +684,30 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return created;
+  }
+
+  private async generateFaqEmbedding(faq: Faq): Promise<void> {
+    if (!embeddingsEnabled()) return;
+
+    const content = buildFaqEmbeddingContent(faq);
+    if (!content) return;
+
+    const embedding = await generateCatalogEmbedding(content);
+    if (!embedding || embedding.length === 0) return;
+
+    const value: InsertFaqEmbedding = {
+      faqId: faq.id,
+      content,
+      embedding,
+    };
+
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(faqEmbeddings)
+        .where(eq(faqEmbeddings.faqId, faq.id));
+
+      await tx.insert(faqEmbeddings).values(value);
+    });
   }
 
   private async removeItemEmbeddings(itemId: number): Promise<void> {

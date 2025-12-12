@@ -41,6 +41,21 @@ export const insertFaqSchema = createInsertSchema(faqs).omit({
 export type InsertFaq = z.infer<typeof insertFaqSchema>;
 export type Faq = typeof faqs.$inferSelect;
 
+export const faqEmbeddings = pgTable("faq_embeddings", {
+  id: serial("id").primaryKey(),
+  faqId: integer("faq_id")
+    .notNull()
+    .references(() => faqs.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  embedding: vector("embedding", { dimensions: catalogEmbeddingDimensions }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  faqIndex: index("faq_embeddings_faq_id_idx").on(table.faqId),
+}));
+
+export type FaqEmbedding = typeof faqEmbeddings.$inferSelect;
+export type InsertFaqEmbedding = typeof faqEmbeddings.$inferInsert;
+
 export const catalogItems = pgTable("catalog_items", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),

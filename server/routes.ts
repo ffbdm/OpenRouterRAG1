@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage } from "./storage";
 import { type CatalogHybridHit, type CatalogHybridSearchResult } from "./catalog-hybrid";
+import { type FaqHybridSearchResult } from "./faq-hybrid";
 import { getBufferedLogs, subscribeToLogs, type LogEntry } from "./log-stream";
 import { logToolPayload } from "./tool-logger";
 import { registerCatalogRoutes } from "./catalog-routes";
@@ -95,6 +96,24 @@ function logHybridStats(label: string, result: CatalogHybridSearchResult) {
       const pairTag = hit.lexicalSignals?.hasCultureTreatmentPair ? " pair" : "";
       const sourceLabel = hit.source === "lexical" ? "lexical" : `vetorial:${hit.source}`;
       console.log(`  #${index + 1} ${hit.item.name} | fonte=${sourceLabel} | vec=${vectorScore} | lex=${lexicalScore}${pairTag}`);
+    });
+  }
+}
+
+function logFaqHybridStats(label: string, result: FaqHybridSearchResult) {
+  const timing = result.timings;
+  console.log(`[RAG] ${label} :: total=${result.results.length} vetorial=${result.vectorCount} lexical=${result.lexicalCount} embeddingUsed=${result.embeddingUsed}`);
+  console.log(`[RAG] Tempos (ms) → vector=${timing.vectorMs} lexical=${timing.lexicalMs} merge=${timing.mergeMs} total=${timing.totalMs}`);
+  if (result.fallbackReason) {
+    console.log(`[RAG] Fallback: ${result.fallbackReason}`);
+  }
+
+  if (result.results.length > 0) {
+    console.log(`[RAG] Detalhes de ranking (FAQ):`);
+    result.results.forEach((hit, index) => {
+      const vectorScore = typeof hit.score === "number" ? hit.score.toFixed(4) : "n/a";
+      const lexicalScore = typeof hit.lexicalScore === "number" ? hit.lexicalScore.toFixed(2) : "n/a";
+      console.log(`  #${index + 1} ${hit.item.question} | fonte=${hit.source} | vec=${vectorScore} | lex=${lexicalScore}`);
     });
   }
 }
@@ -510,36 +529,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         contextSections.push(`Resumo automático da conversa: ${historySummary}`);
       }
 
-      if (searchPlan.runFaq) {
-        databaseQueried = true;
-        const resolvedLimit = resolveLimit(undefined, 5, 15);
-        console.log("\n🔍 [BUSCA] Executando searchFaqs");
+	      if (searchPlan.runFaq) {
+	        databaseQueried = true;
+	        const resolvedLimit = resolveLimit(undefined, 5, 15);
+	        console.log("\n🔍 [BUSCA] Executando searchFaqsHybrid");
 
-        const results = await storage.searchFaqs(userMessage, resolvedLimit, { queryContext });
-        faqsFound = results.length;
+	        const hybridFaqSearch = await storage.searchFaqsHybrid(userMessage, resolvedLimit, { queryContext });
+	        const results = hybridFaqSearch.results.map((hit) => hit.item);
+	        faqsFound = results.length;
 
-        if (results.length > 0) {
-          console.log("✅ [FAQs] Encontradas", results.length);
-          results.forEach((r, idx) => console.log(`   ${idx + 1}. ${r.question}`));
-        } else {
-          console.log("❌ [FAQs] Nenhuma FAQ relevante encontrada");
-        }
+	        logFaqHybridStats("RAG faqs", hybridFaqSearch);
 
-        const faqContext = results.length > 0
-          ? results.map((faq, idx) => `${idx + 1}. Q: ${faq.question} | A: ${faq.answer}`).join(" || ")
-          : "Nenhuma FAQ relevante encontrada.";
+	        if (results.length > 0) {
+	          console.log("✅ [FAQs] Encontradas", results.length);
+	          results.forEach((r, idx) => console.log(`   ${idx + 1}. ${r.question}`));
+	        } else {
+	          console.log("❌ [FAQs] Nenhuma FAQ relevante encontrada");
+	        }
 
-        contextSections.push(`FAQs relevantes (${results.length}): ${faqContext}`);
+	        const faqContext = results.length > 0
+	          ? results.map((faq, idx) => `${idx + 1}. Q: ${faq.question} | A: ${faq.answer}`).join(" || ")
+	          : "Nenhuma FAQ relevante encontrada.";
 
-        logToolPayload({
-          toolName: "searchFaqs",
-          args: { query: userMessage, limit: resolvedLimit, intent, queryContext },
-          resultCount: results.length,
-          aiPayload: faqContext,
-        });
-      } else {
-        contextSections.push("FAQs relevantes: nenhuma consulta executada para esta pergunta.");
-      }
+	        contextSections.push(`FAQs relevantes (${results.length}): ${faqContext}`);
+
+	        logToolPayload({
+	          toolName: "searchFaqs",
+	          args: {
+	            query: userMessage,
+	            limit: resolvedLimit,
+	            intent,
+	            queryContext,
+	            source: "hybrid",
+	            timings: hybridFaqSearch.timings,
+	          },
+	          resultCount: hybridFaqSearch.results.length,
+	          aiPayload: faqContext,
+	        });
+	      } else {
+	        contextSections.push("FAQs relevantes: nenhuma consulta executada para esta pergunta.");
+	      }
 
       if (searchPlan.runCatalog) {
         databaseQueried = true;
