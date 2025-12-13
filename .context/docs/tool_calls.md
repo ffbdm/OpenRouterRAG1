@@ -67,7 +67,9 @@ Existem dois caminhos principais:
 1) **Chat RAG (principal)**
 - Endpoint: `POST /api/chat`
 - Condição: `planSearches(intent).runCatalog === true`
-- Execução: chama `storage.searchCatalogHybrid(userMessage, resolvedLimit, { queryContext })`
+- Execução: chama `storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit, { queryContext })`, onde:
+  - Por padrão: `catalogSearchQuery = userMessage`
+  - Opcional: quando `CATALOG_QUERY_KEYWORDS_ENABLED=true` e o resumo automático gerou `catalogQuery`, usa `catalogSearchQuery = catalogQuery` (fallback continua sendo `userMessage`)
 
 2) **Busca direta de RAG (debug/API)**
 - Endpoint: `POST /api/rag/search`
@@ -100,16 +102,14 @@ Saída (`CatalogHybridSearchResult`):
 A busca híbrida pode considerar histórico recente.
 
 - O servidor cria `effectiveQuery` assim:
-  - `effectiveQuery = combineQueryWithContext(query, options?.queryContext)`
-  - Ele concatena `query` + `queryContext` (se existir) e corta em `maxLength`.
+  - `effectiveQuery = query` (atualmente o catálogo **não** concatena `queryContext`).
 
 Motivação:
-- Aumentar recall quando o usuário faz perguntas curtas (“e para uva?”) referindo-se a mensagens anteriores.
+- Evitar “poluição” da busca com texto de conversa (ex.: saudações), mantendo a query focada em termos do catálogo.
 
 Observações operacionais:
 - O log pode mostrar:
-  - `searchCatalogHybrid :: queryContext => ...`
-  - `searchCatalogHybrid :: query+context aplicado => ...`
+  - `catalogQuery gerada a partir do resumo: "..."` (quando `CATALOG_QUERY_KEYWORDS_ENABLED=true`)
 
 ### 4.4 Etapa C — busca lexical (SQL)
 O pipeline lexical começa consultando o banco via `searchCatalog(effectiveQuery, finalLimit)`.
