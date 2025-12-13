@@ -27,6 +27,7 @@ import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, bui
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 import { clampFaqLimit, mapFaqLexicalResults, mergeFaqResults, type FaqHybridHit, type FaqHybridSearchResult } from "./faq-hybrid";
 import { buildFaqEmbeddingContent, buildFaqSnippet } from "./faq-embedding-utils";
+import { scoreCatalogItemLexical } from "./catalog-lexical-ranker";
 
 let faqNormalizationEnsured = false;
 
@@ -89,6 +90,37 @@ function buildCatalogSearchCondition(query: string) {
   }
 
   return or(...clauses);
+}
+
+function buildCatalogSearchRank(query: string): SQL<number> {
+  const tokens = extractSearchTokens(query);
+  const normalizedQuery = normalizeText(query);
+  const terms = tokens.length > 0
+    ? tokens
+    : normalizedQuery
+      ? [normalizedQuery]
+      : [];
+
+  if (terms.length === 0) {
+    return sql<number>`0`;
+  }
+
+  const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
+  const searchableFields = [
+    sql`lower(translate(${catalogItems.name}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.description}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.category}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.manufacturer}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${tagsText}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+  ];
+
+  const termScores = terms.map((term) => {
+    const likePattern = `%${term}%`;
+    const termMatch = or(...searchableFields.map((field) => ilike(field, likePattern)));
+    return sql<number>`CASE WHEN ${termMatch} THEN 1 ELSE 0 END`;
+  });
+
+  return sql<number>`(${sql.join(termScores, sql` + `)})`;
 }
 
 function buildVectorParam(embedding: number[]) {
@@ -264,6 +296,7 @@ export class DatabaseStorage implements IStorage {
 
   async searchCatalog(query: string, limit: number): Promise<CatalogItem[]> {
     const searchCondition = buildCatalogSearchCondition(query);
+    const searchRank = buildCatalogSearchRank(query);
 
     return db
       .select()
@@ -274,6 +307,7 @@ export class DatabaseStorage implements IStorage {
           searchCondition
         )
       )
+      .orderBy(desc(searchRank), desc(catalogItems.createdAt))
       .limit(limit);
   }
 
@@ -379,8 +413,18 @@ export class DatabaseStorage implements IStorage {
 
     const effectiveQuery = query;
 
+    const enhanced = process.env.HYBRID_SEARCH_ENHANCED === "true";
+    const lexicalCandidateMultiplier = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MULTIPLIER ?? 6);
+    const lexicalCandidateMax = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MAX ?? 200);
+    const lexicalCandidateLimit = enhanced
+      ? Math.min(
+        Number.isFinite(lexicalCandidateMax) ? lexicalCandidateMax : 200,
+        finalLimit * (Number.isFinite(lexicalCandidateMultiplier) && lexicalCandidateMultiplier > 0 ? lexicalCandidateMultiplier : 6),
+      )
+      : finalLimit;
+
     const lexicalStartedAt = Date.now();
-    const lexicalResults = await this.searchCatalog(effectiveQuery, finalLimit);
+    const lexicalResults = await this.searchCatalog(effectiveQuery, Math.max(finalLimit, lexicalCandidateLimit));
     const lexicalMs = Date.now() - lexicalStartedAt;
 
     const lexicalHits = mapLexicalResults(lexicalResults, effectiveQuery);
@@ -397,6 +441,18 @@ export class DatabaseStorage implements IStorage {
       const vectorQuery = await this.searchCatalogVector(embedding, effectiveQuery, finalLimit);
       vectorMs = Date.now() - vectorStartedAt;
       vectorResults = vectorQuery.results;
+
+      if (enhanced) {
+        vectorResults = vectorResults.map((hit) => {
+          if (typeof hit.lexicalScore === "number") return hit;
+          const lexical = scoreCatalogItemLexical(effectiveQuery, hit.item);
+          return {
+            ...hit,
+            lexicalScore: lexical?.score,
+            lexicalSignals: lexical?.signals,
+          };
+        });
+      }
 
       if (vectorQuery.error) {
         fallbackReason = "vector-query-error";
