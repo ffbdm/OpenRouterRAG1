@@ -21,23 +21,49 @@ async function main() {
   }
 
   const limit = Number(process.env.DEBUG_SEARCH_LIMIT ?? 10);
-  const tokens = extractSearchTokens(query, { maxTokens: 8 });
+  const tokens = extractSearchTokens(query);
+  const enhanced = process.env.HYBRID_SEARCH_ENHANCED === "true";
 
   console.log(`🔍 Consulta: "${query}"`);
   console.log(`🧩 Tokens normalizados (${tokens.length}): ${tokens.join(", ") || "(nenhum)"}`);
   console.log("------------------------------------------------------------");
 
   const results = await storage.searchCatalog(query, limit);
-  console.log(`searchCatalog retornou ${results.length} itens (limite=${limit}).\n`);
+  console.log(`searchCatalog retornou ${results.length} itens (limite=${limit}).`);
+  if (enhanced) {
+    console.log(`Ordenação: lexical score (HYBRID_SEARCH_ENHANCED=true).\n`);
+  } else {
+    console.log("Ordenação: retorno do banco (HYBRID_SEARCH_ENHANCED!=true).\n");
+  }
 
-  results.forEach((item, index) => {
-    logItemDetails(item, index, query, tokens);
+  const entries = results.map((item, index) => ({
+    item,
+    index,
+    lexical: enhanced ? scoreCatalogItemLexical(query, item) : undefined,
+  }));
+
+  if (enhanced) {
+    entries.sort((a, b) => {
+      const scoreDiff = (b.lexical?.score ?? 0) - (a.lexical?.score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return a.index - b.index;
+    });
+  }
+
+  entries.forEach((entry, index) => {
+    logItemDetails(entry.item, index, query, tokens, entry.lexical);
   });
 
   process.exit(0);
 }
 
-function logItemDetails(item: CatalogItem, position: number, query: string, tokens: string[]) {
+function logItemDetails(
+  item: CatalogItem,
+  position: number,
+  query: string,
+  tokens: string[],
+  lexical?: ReturnType<typeof scoreCatalogItemLexical>,
+) {
   console.log(`#${position + 1} — ${item.name} (id=${item.id})`);
   console.log(`   Categoria: ${item.category} | Fabricante: ${item.manufacturer}`);
   console.log(`   Tags: ${item.tags.join(", ") || "(sem tags)"}`);
@@ -53,7 +79,6 @@ function logItemDetails(item: CatalogItem, position: number, query: string, toke
     });
   }
 
-  const lexical = scoreCatalogItemLexical(query, item);
   if (lexical) {
     console.log(
       `   Lexical score: ${lexical.score.toFixed(2)} | tokens usados: ${lexical.signals.matchedTokens.join(", ") || "(nenhum)"}`,
@@ -104,29 +129,17 @@ function detectFieldMatches(item: CatalogItem, tokens: string[]): TokenFieldMatc
 function includesToken(value: string, token: string): boolean {
   if (!value) return false;
   const normalized = normalizeText(value);
-  const boundaryPattern = new RegExp(`(?:^|\s)${escapeRegex(token)}(?:$|\s)`);
-  return boundaryPattern.test(normalized);
+  return normalized.includes(token);
 }
 
 function highlightSnippet(value: string, token: string): string {
   const normalized = normalizeText(value);
-  const words = normalized.split(" ");
-  let offset = 0;
-
-  for (const word of words) {
-    if (!word) {
-      offset += 1;
-      continue;
-    }
-
-    if (word === token) {
-      const start = Math.max(0, offset - 20);
-      const end = Math.min(normalized.length, offset + token.length + 20);
-      const snippet = normalized.slice(start, end);
-      return `…${snippet}…`;
-    }
-
-    offset += word.length + 1;
+  const tokenIndex = normalized.indexOf(token);
+  if (tokenIndex >= 0) {
+    const start = Math.max(0, tokenIndex - 20);
+    const end = Math.min(normalized.length, tokenIndex + token.length + 20);
+    const snippet = normalized.slice(start, end);
+    return `…${snippet}…`;
   }
 
   return buildSnippet(value, 80);
