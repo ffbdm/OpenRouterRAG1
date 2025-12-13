@@ -12,6 +12,14 @@ import { catalogItemEmbeddings, catalogItems } from "../shared/schema";
 
 process.env.HYBRID_SEARCH_ENHANCED ||= process.env.HYBRID_SEARCH_ENHNACED || "true";
 
+function hybridSearchEnhancedEnabled(): boolean {
+  const rawFlag = process.env.HYBRID_SEARCH_ENHANCED ?? process.env.HYBRID_SEARCH_ENHNACED;
+  if (typeof rawFlag === "string") {
+    return rawFlag === "true";
+  }
+  return true;
+}
+
 function resolveWeight(value: string | number | undefined, fallback: number): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -145,15 +153,25 @@ async function main() {
   }
 
   const tokens = extractSearchTokens(query, { maxTokens: 12 });
-  const hybridEnhanced = process.env.HYBRID_SEARCH_ENHANCED === "true";
+  const hybridEnhanced = hybridSearchEnhancedEnabled();
+
+  const lexicalCandidateMultiplier = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MULTIPLIER ?? 6);
+  const lexicalCandidateMax = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MAX ?? 200);
+  const lexicalCandidateLimit = hybridEnhanced
+    ? Math.min(
+      Number.isFinite(lexicalCandidateMax) ? lexicalCandidateMax : 200,
+      limit * (Number.isFinite(lexicalCandidateMultiplier) && lexicalCandidateMultiplier > 0 ? lexicalCandidateMultiplier : 6),
+    )
+    : limit;
 
   console.log(`🔍 Consulta: "${query}"`);
   console.log(`📏 Limite: ${limit}`);
   console.log(`🧩 Tokens (${tokens.length}): ${tokens.join(", ") || "(nenhum)"}`);
-  console.log(`⚙️  HYBRID_SEARCH_ENHANCED=${process.env.HYBRID_SEARCH_ENHANCED} (default do script: true)`);
+  console.log(`⚙️  HYBRID_SEARCH_ENHANCED=${process.env.HYBRID_SEARCH_ENHANCED ?? "(unset)"} | HYBRID_SEARCH_ENHNACED=${process.env.HYBRID_SEARCH_ENHNACED ?? "(unset)"} | resolved=${hybridEnhanced}`);
   console.log(
     `⚙️  Pesos: vector=${resolveWeight(process.env.CATALOG_VECTOR_WEIGHT, 6)} | lexical=${resolveWeight(process.env.CATALOG_LEXICAL_WEIGHT, 4)} | pair=${resolveWeight(process.env.CATALOG_PAIR_PRIORITY_BONUS, 4)}`,
   );
+  console.log(`⚙️  Lexical candidates: limit=${lexicalCandidateLimit} (mult=${lexicalCandidateMultiplier} max=${lexicalCandidateMax})`);
 
   const threshold = Number(process.env.CATALOG_VECTOR_THRESHOLD ?? -0.5);
   console.log(`⚙️  CATALOG_VECTOR_THRESHOLD=${Number.isFinite(threshold) ? threshold : "disabled"} (menor = melhor)`);
@@ -168,9 +186,9 @@ async function main() {
   const startedAt = Date.now();
 
   const lexicalStartedAt = Date.now();
-  const lexicalRows = await storage.searchCatalog(query, limit);
+  const lexicalRows = await storage.searchCatalog(query, Math.max(limit, lexicalCandidateLimit));
   const lexicalMs = Date.now() - lexicalStartedAt;
-  const lexicalHits = mapLexicalResults(lexicalRows, query);
+  const lexicalHits = mapLexicalResults(lexicalRows, query, { enhanced: hybridEnhanced });
   const lexicalRowIds = new Set(lexicalRows.map((item) => item.id));
 
   let vectorHits: CatalogHybridHit[] = [];
@@ -196,8 +214,20 @@ async function main() {
     fallbackReason = embeddingsEnabled() ? "embedding-generation-failed" : "embedding-disabled";
   }
 
+  if (hybridEnhanced && vectorHits.length > 0) {
+    vectorHits = vectorHits.map((hit) => {
+      if (typeof hit.lexicalScore === "number") return hit;
+      const lexical = scoreCatalogItemLexical(query, hit.item);
+      return {
+        ...hit,
+        lexicalScore: lexical?.score,
+        lexicalSignals: lexical?.signals,
+      };
+    });
+  }
+
   const mergeStartedAt = Date.now();
-  const merged = mergeCatalogResults(vectorHits, lexicalHits, limit);
+  const merged = mergeCatalogResults(vectorHits, lexicalHits, limit, { enhanced: hybridEnhanced });
   const mergeMs = Date.now() - mergeStartedAt;
 
   console.log(
