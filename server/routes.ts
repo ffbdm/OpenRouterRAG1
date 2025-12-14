@@ -719,8 +719,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .slice(0, Math.max(1, Math.min(topN, hybridSearch.results.length)))
             .map((hit) => hit.item.id);
 
+          const filesVectorQuery = historySummary?.trim() || userMessage;
           console.log(`[RAG] Enriquecimento por anexos habilitado: itens=${catalogItemIds.length} (topN=${topN})`);
-          const filesResult = await storage.searchCatalogFilesVector({ query: userMessage, catalogItemIds });
+          console.log(`[RAG] Query vetorial (anexos): ${filesVectorQuery === userMessage ? "userMessage" : "historySummary"}`);
+          const filesResult = await storage.searchCatalogFilesVector({ query: filesVectorQuery, catalogItemIds });
           catalogFilesUsed = true;
           catalogFilesChunks = filesResult.vectorCount;
           catalogFilesTimingMs = filesResult.timingMs;
@@ -738,6 +740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             toolName: "searchCatalogFiles",
             args: {
               query: userMessage,
+              searchQuery: filesVectorQuery,
               itemIds: catalogItemIds,
               intent,
               useCatalogFiles,
