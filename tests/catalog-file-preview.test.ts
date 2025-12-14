@@ -56,6 +56,60 @@ function buildPdfBuffer(text: string): Buffer {
   return Buffer.from(header + body + xref + trailer, "utf-8");
 }
 
+function escapePdfLiteral(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function buildPdfTableBuffer(rows: string[][], options?: { startX?: number; startY?: number; colGap?: number; rowGap?: number }): Buffer {
+  const startX = options?.startX ?? 50;
+  const startY = options?.startY ?? 750;
+  const colGap = options?.colGap ?? 200;
+  const rowGap = options?.rowGap ?? 22;
+
+  const header = "%PDF-1.4\n";
+  const catalog = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+  const pages = "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n";
+  const page = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n";
+
+  const parts: string[] = ["BT /F1 12 Tf"];
+  rows.forEach((row, rowIndex) => {
+    const y = startY - rowIndex * rowGap;
+    row.forEach((cell, colIndex) => {
+      const x = startX + colIndex * colGap;
+      parts.push(`1 0 0 1 ${x} ${y} Tm (${escapePdfLiteral(cell)}) Tj`);
+    });
+  });
+  parts.push("ET");
+
+  const contentStream = parts.join("\n");
+  const contents = `4 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`;
+  const font = "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
+
+  const objects = [catalog, pages, page, contents, font];
+  const offsets = [0];
+  let body = "";
+  let position = header.length;
+
+  for (const object of objects) {
+    offsets.push(position);
+    body += object;
+    position += object.length;
+  }
+
+  const xrefStart = header.length + body.length;
+  let xref = "xref\n0 6\n0000000000 65535 f \n";
+  for (let i = 1; i < offsets.length; i++) {
+    const padded = offsets[i].toString().padStart(10, "0");
+    xref += `${padded} 00000 n \n`;
+  }
+
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(header + body + xref + trailer, "utf-8");
+}
+
 async function buildDocxBuffer(text: string): Promise<Buffer> {
   const zip = new JSZip();
 
@@ -126,6 +180,8 @@ test("trata CSV como texto limpo", async () => {
 });
 
 test("extrai preview de PDF", async () => {
+  const previousEngine = process.env.PDF_PREVIEW_ENGINE;
+  delete process.env.PDF_PREVIEW_ENGINE;
   const file = buildMockFile({
     buffer: buildPdfBuffer("Hello PDF preview"),
     mimetype: "application/pdf",
@@ -133,6 +189,85 @@ test("extrai preview de PDF", async () => {
 
   const preview = await extractTextPreview(file);
   assert.ok(preview?.includes("Hello PDF preview"));
+
+  if (previousEngine === undefined) delete process.env.PDF_PREVIEW_ENGINE;
+  else process.env.PDF_PREVIEW_ENGINE = previousEngine;
+});
+
+test("PDF.js preserva colunas como tabela Markdown quando configurado", async () => {
+  const previousEngine = process.env.PDF_PREVIEW_ENGINE;
+  process.env.PDF_PREVIEW_ENGINE = "pdfjs";
+
+  try {
+    const file = buildMockFile({
+      buffer: buildPdfTableBuffer([
+        ["Composicao", "Dose"],
+        ["Ingrediente ativo", "10g"],
+        ["Veiculo", "q.s.p."],
+      ]),
+      mimetype: "application/pdf",
+    });
+
+    const preview = await extractTextPreview(file);
+    assert.ok(preview?.includes("| Composicao | Dose |"));
+    assert.ok(preview?.includes("| --- | --- |"));
+  } finally {
+    if (previousEngine === undefined) delete process.env.PDF_PREVIEW_ENGINE;
+    else process.env.PDF_PREVIEW_ENGINE = previousEngine;
+  }
+});
+
+test("pdf-parse não injeta pipes/tabela quando engine está configurada", async () => {
+  const previousEngine = process.env.PDF_PREVIEW_ENGINE;
+  process.env.PDF_PREVIEW_ENGINE = "pdf-parse";
+
+  try {
+    const file = buildMockFile({
+      buffer: buildPdfTableBuffer([
+        ["Composicao", "Dose"],
+        ["Ingrediente ativo", "10g"],
+        ["Veiculo", "q.s.p."],
+      ]),
+      mimetype: "application/pdf",
+    });
+
+    const preview = await extractTextPreview(file);
+    assert.ok(preview?.includes("Composicao"));
+    assert.ok(preview?.includes("Dose"));
+    assert.ok(!preview?.includes("| --- | --- |"));
+  } finally {
+    if (previousEngine === undefined) delete process.env.PDF_PREVIEW_ENGINE;
+    else process.env.PDF_PREVIEW_ENGINE = previousEngine;
+  }
+});
+
+test("respeita PDF_PREVIEW_MAX_CHARS para PDFs", async () => {
+  const prevEngine = process.env.PDF_PREVIEW_ENGINE;
+  const prevMaxChars = process.env.PDF_PREVIEW_MAX_CHARS;
+
+  process.env.PDF_PREVIEW_ENGINE = "pdfjs";
+  process.env.PDF_PREVIEW_MAX_CHARS = "40";
+
+  try {
+    const file = buildMockFile({
+      buffer: buildPdfTableBuffer([
+        ["Composicao", "Dose"],
+        ["Ingrediente ativo", "10g"],
+        ["Veiculo", "q.s.p."],
+      ]),
+      mimetype: "application/pdf",
+    });
+
+    const preview = await extractTextPreview(file);
+    assert.ok(preview);
+    assert.ok(preview.length <= 40);
+  } finally {
+    if (prevEngine === undefined) delete process.env.PDF_PREVIEW_ENGINE;
+    else process.env.PDF_PREVIEW_ENGINE = prevEngine;
+
+    if (prevMaxChars === undefined) delete process.env.PDF_PREVIEW_MAX_CHARS;
+    else process.env.PDF_PREVIEW_MAX_CHARS = prevMaxChars;
+  }
 });
 
 test("extrai preview de DOCX", async () => {

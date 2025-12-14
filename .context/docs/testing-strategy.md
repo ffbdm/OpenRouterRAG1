@@ -7,11 +7,12 @@ Quality today is enforced through strict TypeScript checks, manual E2E validatio
 ## Test Types
 - **Type-level/unit coverage:** `npm run check` runs the repo-wide TypeScript program which catches regressions in shared types, storage contracts, and React props.
 - **Manual integration checks:** Run `npm run dev`, submit Portuguese prompts that hit `searchFaqsHybrid` and `searchCatalogHybrid`, and verify the debug payload plus SSE logs reflect the expected DB counts and fallback reasons.
-- **Ad-hoc scripts:** `scripts/seedCatalog.ts`, `scripts/seedCatalogEmbeddings.ts`, `scripts/seedFaqEmbeddings.ts` and debug scripts double as sanity checks for schema/embedding health.
+- **Ad-hoc scripts:** `scripts/seedCatalog.ts`, `scripts/seedCatalogEmbeddings.ts`, `scripts/seedFaqEmbeddings.ts`, `scripts/backfillCatalogPdfPreviews.ts` and debug scripts double as sanity checks for schema/embedding health.
 - **Planned automation:** When time allows, add Vitest or Jest for storage utilities and Playwright smoke tests for the chat UI/log terminal.
 
 ## Running Tests
 - **TypeScript program:** `npm run check`
+- **Unit tests (Node test runner via tsx):** `npm test`
 - **Production bundle sanity:** `npm run build && npm run start`
 - **Manual E2E:**
 	1. Start dev mode (`npm run dev`).
@@ -29,6 +30,7 @@ Quality today is enforced through strict TypeScript checks, manual E2E validatio
 - **Tokenization edge cases:** When `searchFaqsHybrid` falls back or returns zero rows, inspect the server logs for normalized tokens and hybrid stats to decide whether to adjust the query or seed data.
 - **SSE disconnects:** Browser dev tools throttling can pause `/api/logs/stream`; reloading the UI replays buffered logs.
 - **Long-running builds:** If `npm run build` stalls, ensure the client bundle was cleaned (`rm -rf dist`) and esbuild is installed (pnpm/npm sometimes skip optional deps).
+- **PDF preview regressions:** Run `npm test` and focus on `tests/catalog-file-preview.test.ts` (table/limits). If you need to reprocess existing PDFs in a dev DB, use `npm run backfill:pdf-previews -- --dry-run`.
 
 <!-- agent-readonly:guidance -->
 ## AI Update Checklist
