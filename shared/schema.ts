@@ -147,12 +147,17 @@ export const catalogItemEmbeddings = pgTable("catalog_item_embeddings", {
   catalogItemId: integer("catalog_item_id")
     .notNull()
     .references(() => catalogItems.id, { onDelete: "cascade" }),
+  catalogFileId: integer("catalog_file_id")
+    .references(() => catalogFiles.id, { onDelete: "cascade" }),
   source: catalogItemEmbeddingSourceEnum("source").notNull().default("file"),
+  chunkIndex: integer("chunk_index").notNull().default(0),
   content: text("content").notNull(),
   embedding: vector("embedding", { dimensions: catalogEmbeddingDimensions }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   catalogItemIndex: index("catalog_item_embeddings_item_id_idx").on(table.catalogItemId),
+  catalogFileIndex: index("catalog_item_embeddings_file_id_idx").on(table.catalogFileId),
+  catalogChunkIndex: index("catalog_item_embeddings_chunk_idx").on(table.catalogItemId, table.source, table.chunkIndex),
 }));
 
 export type CatalogItemEmbedding = typeof catalogItemEmbeddings.$inferSelect;

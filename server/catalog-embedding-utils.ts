@@ -42,6 +42,18 @@ export function buildCatalogFileEmbeddingContent(file: CatalogFile, item?: Catal
   return normalizeWhitespace(`${header} ${preview}`);
 }
 
+export function buildCatalogFileEmbeddingChunkContent(
+  file: Pick<CatalogFile, "originalName">,
+  chunk: string,
+  item?: Pick<CatalogItem, "name" | "category">,
+): string {
+  const header = item
+    ? `${item.name} (${item.category}) — anexo ${file.originalName}.`
+    : `Anexo ${file.originalName}.`;
+
+  return normalizeWhitespace(`${header} ${chunk}`);
+}
+
 export function buildSnippet(content: string, limit = SNIPPET_LIMIT): string {
   const normalized = normalizeWhitespace(content);
   if (normalized.length <= limit) return normalized;

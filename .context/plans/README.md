@@ -24,12 +24,13 @@ This directory is the run queue for AI agents and maintainers coordinating work 
 11. [Log Return Ia Form Db](./log-return-ia-form-db.md)
 12. [Markdown Chat](./markdown-chat.md)
 13. [One Shoot With Zero Tool Calls](./one-shoot-with-zero-tool-calls.md)
-14. [Rag Context Catalog](./rag-context-catalog.md)
-15. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
-16. [Rag System Hybrid](./rag-system-hybrid.md)
-17. [Simplify Flow Rag](./simplify-flow-rag.md)
-18. [Ui Catalog](./ui-catalog.md)
-19. [Whatsapp](./whatsapp.md)
+14. [Pdfjs](./pdfjs.md)
+15. [Rag Context Catalog](./rag-context-catalog.md)
+16. [Rag Context Catalog Discovery](./rag-context-catalog-discovery.md)
+17. [Rag System Hybrid](./rag-system-hybrid.md)
+18. [Simplify Flow Rag](./simplify-flow-rag.md)
+19. [Ui Catalog](./ui-catalog.md)
+20. [Whatsapp](./whatsapp.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

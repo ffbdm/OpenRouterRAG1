@@ -168,9 +168,10 @@ function buildQueryContextFromHistory(history: ChatHistoryMessage[] | undefined)
 
 async function summarizeHistory(
   history: ChatHistoryMessage[] | undefined,
+  userMessage: string,
   apiKey: string,
   model: string,
-): Promise<string | undefined> {
+): Promise<{ summary: string; catalogQuery?: string } | undefined> {
   if (!history || history.length < historySummaryTrigger) return undefined;
 
   const normalizedHistory = history
@@ -187,47 +188,133 @@ async function summarizeHistory(
 
   if (normalizedHistory.length < historySummaryTrigger) return undefined;
 
+  const summaryResponseFormat = {
+    type: "json_schema" as const,
+    json_schema: {
+      name: "history_summary",
+      schema: {
+        type: "object",
+        properties: {
+          summary: { type: "string" },
+          catalogQuery: { type: "string" },
+        },
+        required: ["summary"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+  };
+
   const summaryMessages: Message[] = [
     {
       role: "system",
-      content: "Você cria resumos concisos da conversa recente entre usuário e assistente. Foque em pedidos, respostas dadas e pendências. Não invente dados e não repita o prompt.",
+      content: [
+        "Você cria um resumo conciso da conversa recente (usuário+assistente) e, quando fizer sentido, sugere uma query curta de palavras-chave para busca em catálogo.",
+        "Regras:",
+        "- Não invente dados.",
+        "- Seja objetivo e em português.",
+        "- A query de catálogo deve conter apenas palavras-chave (sem frases longas), separadas por espaço, com no máximo 12 termos.",
+        "- Se não houver contexto útil para catálogo, omita catalogQuery.",
+      ].join("\n"),
     },
     ...normalizedHistory.map((item) => ({ role: item.role, content: item.content })),
     {
       role: "user",
-      content: "Gere um resumo objetivo (2-3 bullet points em português) das mensagens acima, destacando contexto, intenções do usuário, fatos confirmados e pendências. Limite a 200 palavras.",
+      content: [
+        `Mensagem atual do usuário: ${userMessage}`,
+        "",
+        "Retorne APENAS um JSON válido com o formato:",
+        '{ "summary": "2-3 bullet points em português", "catalogQuery": "opcional" }',
+        "",
+        "O campo summary deve ter no máximo 200 palavras.",
+      ].join("\n"),
     },
   ];
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
-        "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: summaryMessages,
-        temperature: 0,
-        max_tokens: 220,
-      }),
-    });
+    const callSummary = async (useResponseFormat: boolean) => {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+          "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: summaryMessages,
+          temperature: 0,
+          max_tokens: 256,
+          ...(useResponseFormat ? { response_format: summaryResponseFormat } : {}),
+        }),
+      });
 
+      return response;
+    };
+
+    let response = await callSummary(true);
     if (!response.ok) {
       const errorBody = await response.text();
       console.warn(`[SUMMARY] Falha ao gerar resumo (status=${response.status}):`, errorBody);
+
+      if (response.status === 400) {
+        console.warn("[SUMMARY] Tentando novamente sem response_format (compatibilidade de modelo).");
+        response = await callSummary(false);
+      }
+    }
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.warn(`[SUMMARY] Falha ao gerar resumo (fallback status=${response.status}):`, errorBody);
       return undefined;
     }
 
     const data = await response.json();
-    const text = data.choices?.[0]?.message?.content;
+    const message = data?.choices?.[0]?.message ?? {};
+    const rawContent = typeof message.content === "string" ? message.content : "";
+    if (!rawContent.trim()) return undefined;
 
-    if (typeof text !== "string" || !text.trim()) return undefined;
+    let summary = rawContent.trim();
+    let catalogQuery: string | undefined;
 
-    return text.trim();
+    const extractJsonCandidate = (content: string): string | undefined => {
+      const trimmed = content.trim();
+      if (!trimmed) return undefined;
+
+      if (trimmed.startsWith("```")) {
+        const withoutFence = trimmed
+          .replace(/^```[a-zA-Z0-9]*\n?/, "")
+          .replace(/```$/, "")
+          .trim();
+        if (withoutFence) return withoutFence;
+      }
+
+      const start = trimmed.indexOf("{");
+      const end = trimmed.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        return trimmed.slice(start, end + 1);
+      }
+
+      return undefined;
+    };
+
+    const jsonCandidate = extractJsonCandidate(rawContent);
+    if (jsonCandidate?.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(jsonCandidate) as { summary?: unknown; catalogQuery?: unknown };
+        if (parsed && typeof parsed.summary === "string" && parsed.summary.trim()) {
+          summary = parsed.summary.trim();
+          if (typeof parsed.catalogQuery === "string" && parsed.catalogQuery.trim()) {
+            catalogQuery = parsed.catalogQuery.trim();
+          }
+        }
+      } catch (error) {
+        console.warn("[SUMMARY] Falha ao fazer parse do JSON de resumo:", error);
+      }
+    }
+
+    return { summary, catalogQuery };
   } catch (error) {
     console.warn("[SUMMARY] Erro ao gerar resumo do histórico:", error);
     return undefined;
@@ -359,7 +446,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
-      const historySummary = await summarizeHistory(history, apiKey, answerModel);
+      const historySignals = await summarizeHistory(history, userMessage, apiKey, answerModel);
+      const historySummary = historySignals?.summary;
+      const catalogKeywordQuery = historySignals?.catalogQuery;
 
       const classificationHistoryMessages: Message[] = historySummary
         ? [{ role: "system", content: `Resumo automático do histórico: ${historySummary}` }]
@@ -576,7 +665,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedLimit = resolveLimit(undefined, 5, 15);
         console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
 
-        const hybridSearch = await storage.searchCatalogHybrid(userMessage, resolvedLimit, { queryContext });
+        const keywordQueryEnabled = process.env.CATALOG_QUERY_KEYWORDS_ENABLED === "true";
+        const catalogSearchQuery = keywordQueryEnabled && catalogKeywordQuery
+          ? catalogKeywordQuery
+          : userMessage;
+
+        if (keywordQueryEnabled && catalogKeywordQuery) {
+          console.log(`[RAG] catalogQuery gerada a partir do resumo: "${catalogKeywordQuery}"`);
+        }
+
+        const hybridSearch = await storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit);
         catalogItemsFound = hybridSearch.results.length;
         hybridResult = hybridSearch;
 
@@ -589,11 +687,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           toolName: "searchCatalog",
           args: {
             query: userMessage,
+            searchQuery: catalogSearchQuery,
             limit: resolvedLimit,
             intent,
             source: "hybrid",
             timings: hybridSearch.timings,
-            queryContext,
           },
           resultCount: hybridSearch.results.length,
           aiPayload: catalogPayload,

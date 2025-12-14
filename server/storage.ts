@@ -13,6 +13,7 @@ import {
   type InsertFaqEmbedding,
   type CatalogItem,
   type CatalogItemInput,
+  type InsertCatalogItemEmbedding,
   type CatalogFile,
   type InsertCatalogFile,
   type SystemInstruction,
@@ -20,13 +21,15 @@ import {
   type InsertSystemInstruction,
 } from "@shared/schema";
 import { db } from "./db";
-import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
-import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
+import { buildCatalogFileEmbeddingChunkContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 import { clampFaqLimit, mapFaqLexicalResults, mergeFaqResults, type FaqHybridHit, type FaqHybridSearchResult } from "./faq-hybrid";
 import { buildFaqEmbeddingContent, buildFaqSnippet } from "./faq-embedding-utils";
+import { scoreCatalogItemLexical } from "./catalog-lexical-ranker";
+import { chunkTextByChars, parseOptionalPositiveInt } from "./text-chunking";
 
 let faqNormalizationEnsured = false;
 
@@ -59,6 +62,13 @@ async function ensureFaqQuestionNormalization() {
     faqNormalizationEnsured = true;
 }
 
+function escapeLikePattern(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+}
+
 function buildCatalogSearchCondition(query: string) {
   const tokens = extractSearchTokens(query);
   const normalizedQuery = normalizeText(query);
@@ -89,6 +99,37 @@ function buildCatalogSearchCondition(query: string) {
   }
 
   return or(...clauses);
+}
+
+function buildCatalogSearchRank(query: string): SQL<number> {
+  const tokens = extractSearchTokens(query);
+  const normalizedQuery = normalizeText(query);
+  const terms = tokens.length > 0
+    ? tokens
+    : normalizedQuery
+      ? [normalizedQuery]
+      : [];
+
+  if (terms.length === 0) {
+    return sql<number>`0`;
+  }
+
+  const tagsText = sql<string>`array_to_string(${catalogItems.tags}, ' ')`;
+  const searchableFields = [
+    sql`lower(translate(${catalogItems.name}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.description}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.category}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${catalogItems.manufacturer}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+    sql`lower(translate(${tagsText}, ${ACCENT_FROM}, ${ACCENT_TO}))`,
+  ];
+
+  const termScores = terms.map((term) => {
+    const likePattern = `%${term}%`;
+    const termMatch = or(...searchableFields.map((field) => ilike(field, likePattern)));
+    return sql<number>`CASE WHEN ${termMatch} THEN 1 ELSE 0 END`;
+  });
+
+  return sql<number>`(${sql.join(termScores, sql` + `)})`;
 }
 
 function buildVectorParam(embedding: number[]) {
@@ -264,6 +305,7 @@ export class DatabaseStorage implements IStorage {
 
   async searchCatalog(query: string, limit: number): Promise<CatalogItem[]> {
     const searchCondition = buildCatalogSearchCondition(query);
+    const searchRank = buildCatalogSearchRank(query);
 
     return db
       .select()
@@ -274,6 +316,7 @@ export class DatabaseStorage implements IStorage {
           searchCondition
         )
       )
+      .orderBy(desc(searchRank), desc(catalogItems.createdAt))
       .limit(limit);
   }
 
@@ -329,6 +372,16 @@ export class DatabaseStorage implements IStorage {
       return { results: [] };
     }
 
+    const candidateMultiplier = Number(process.env.CATALOG_VECTOR_CANDIDATE_MULTIPLIER ?? 6);
+    const candidateMax = Number(process.env.CATALOG_VECTOR_CANDIDATE_MAX ?? 200);
+    const queryLimit = Math.min(
+      Number.isFinite(candidateMax) ? candidateMax : 200,
+      limit * (Number.isFinite(candidateMultiplier) && candidateMultiplier > 0 ? candidateMultiplier : 6),
+    );
+
+    const chunksPerItem = parseOptionalPositiveInt(process.env.CATALOG_VECTOR_CHUNKS_PER_ITEM) ?? 1;
+    const combinedSnippetMaxChars = parseOptionalPositiveInt(process.env.CATALOG_VECTOR_SNIPPET_MAX_CHARS) ?? 800;
+
     const embeddingParam = buildVectorParam(queryEmbedding);
     const distance = sql<number>`catalog_item_embeddings.embedding <#> ${embeddingParam}`;
 
@@ -352,14 +405,71 @@ export class DatabaseStorage implements IStorage {
         .innerJoin(catalogItems, eq(catalogItemEmbeddings.catalogItemId, catalogItems.id))
         .where(and(...whereClauses))
         .orderBy(distance)
-        .limit(limit);
+        .limit(queryLimit);
 
-      const results = rows.map((row) => ({
-        item: row.item,
-        source: row.source as CatalogSearchSource,
-        score: row.score,
-        snippet: buildFocusedSnippet(row.content, query),
-      }));
+      type AggregatedHit = {
+        hit: CatalogHybridHit;
+        snippets: string[];
+        completed: boolean;
+      };
+
+      const deduped = new Map<number, AggregatedHit>();
+      let completedItems = 0;
+
+      for (const row of rows) {
+        const itemId = row.item.id;
+        const existing = deduped.get(itemId);
+        const candidateSnippet = buildFocusedSnippet(row.content, query);
+
+        if (existing) {
+          if (existing.snippets.length >= chunksPerItem) {
+            continue;
+          }
+          if (candidateSnippet && !existing.snippets.includes(candidateSnippet)) {
+            existing.snippets.push(candidateSnippet);
+            existing.hit.snippet = existing.snippets.join(" … ");
+            if (existing.hit.snippet.length > combinedSnippetMaxChars) {
+              existing.hit.snippet = `${existing.hit.snippet.slice(0, Math.max(0, combinedSnippetMaxChars - 1))}…`;
+            }
+          }
+
+          if (!existing.completed && existing.snippets.length >= chunksPerItem) {
+            existing.completed = true;
+            completedItems += 1;
+          }
+        } else {
+          if (deduped.size >= limit) {
+            continue;
+          }
+
+          const hit: CatalogHybridHit = {
+            item: row.item,
+            source: row.source as CatalogSearchSource,
+            score: row.score,
+            snippet: candidateSnippet,
+          };
+
+          deduped.set(itemId, {
+            hit,
+            snippets: candidateSnippet ? [candidateSnippet] : [],
+            completed: false,
+          });
+
+          if (chunksPerItem <= 1) {
+            const created = deduped.get(itemId);
+            if (created) {
+              created.completed = true;
+            }
+            completedItems += 1;
+          }
+        }
+
+        if (deduped.size >= limit && completedItems >= limit) {
+          break;
+        }
+      }
+
+      const results = Array.from(deduped.values()).map((entry) => entry.hit);
 
       if (results.length > 0) {
         const scores = results.map((r) => r.score?.toFixed(4) ?? 'N/A').join(', ');
@@ -377,18 +487,20 @@ export class DatabaseStorage implements IStorage {
     const finalLimit = clampCatalogLimit(limit);
     const startedAt = Date.now();
 
-    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+    const effectiveQuery = query;
 
-    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
-    if (contextPreview) {
-      console.log(`[RAG] searchCatalogHybrid :: queryContext => ${contextPreview.slice(0, 240)}`);
-    }
-    if (effectiveQuery !== query) {
-      console.log(`[RAG] searchCatalogHybrid :: query+context aplicado => ${effectiveQuery.slice(0, 240)}`);
-    }
+    const enhanced = process.env.HYBRID_SEARCH_ENHANCED === "true";
+    const lexicalCandidateMultiplier = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MULTIPLIER ?? 6);
+    const lexicalCandidateMax = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MAX ?? 200);
+    const lexicalCandidateLimit = enhanced
+      ? Math.min(
+        Number.isFinite(lexicalCandidateMax) ? lexicalCandidateMax : 200,
+        finalLimit * (Number.isFinite(lexicalCandidateMultiplier) && lexicalCandidateMultiplier > 0 ? lexicalCandidateMultiplier : 6),
+      )
+      : finalLimit;
 
     const lexicalStartedAt = Date.now();
-    const lexicalResults = await this.searchCatalog(effectiveQuery, finalLimit);
+    const lexicalResults = await this.searchCatalog(effectiveQuery, Math.max(finalLimit, lexicalCandidateLimit));
     const lexicalMs = Date.now() - lexicalStartedAt;
 
     const lexicalHits = mapLexicalResults(lexicalResults, effectiveQuery);
@@ -405,6 +517,18 @@ export class DatabaseStorage implements IStorage {
       const vectorQuery = await this.searchCatalogVector(embedding, effectiveQuery, finalLimit);
       vectorMs = Date.now() - vectorStartedAt;
       vectorResults = vectorQuery.results;
+
+      if (enhanced) {
+        vectorResults = vectorResults.map((hit) => {
+          if (typeof hit.lexicalScore === "number") return hit;
+          const lexical = scoreCatalogItemLexical(effectiveQuery, hit.item);
+          return {
+            ...hit,
+            lexicalScore: lexical?.score,
+            lexicalSignals: lexical?.signals,
+          };
+        });
+      }
 
       if (vectorQuery.error) {
         fallbackReason = "vector-query-error";
@@ -541,6 +665,21 @@ export class DatabaseStorage implements IStorage {
       this.generateItemEmbedding(updated).catch((error) => {
         console.warn(`[DB] Falha ao regenerar embedding item ${updated.id}:`, error);
       });
+
+      if (embeddingsEnabled()) {
+        const [file] = await db
+          .select()
+          .from(catalogFiles)
+          .where(eq(catalogFiles.catalogItemId, updated.id))
+          .orderBy(desc(catalogFiles.createdAt))
+          .limit(1);
+
+        if (file && file.textPreview) {
+          this.refreshFileEmbedding(file, updated).catch((error) => {
+            console.warn(`[DB] Falha ao regenerar embeddings de arquivos do item ${updated.id}:`, error);
+          });
+        }
+      }
     }
 
     return updated;
@@ -630,12 +769,39 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCatalogFile(id: number): Promise<CatalogFile | undefined> {
-    const [deleted] = await db
-      .delete(catalogFiles)
-      .where(eq(catalogFiles.id, id))
-      .returning();
+    const file = await this.getCatalogFileById(id);
+    if (!file) return undefined;
 
-    return deleted;
+    const baseMatch = and(
+      eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
+      eq(catalogItemEmbeddings.source, "file"),
+      ilike(
+        catalogItemEmbeddings.content,
+        `%anexo ${escapeLikePattern(file.originalName)}.%`,
+      ),
+    );
+
+    return await db.transaction(async (tx) => {
+      await tx
+        .delete(catalogItemEmbeddings)
+        .where(
+          and(
+            eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
+            eq(catalogItemEmbeddings.source, "file"),
+            or(
+              eq(catalogItemEmbeddings.catalogFileId, file.id),
+              and(isNull(catalogItemEmbeddings.catalogFileId), baseMatch),
+            ),
+          ),
+        );
+
+      const [deleted] = await tx
+        .delete(catalogFiles)
+        .where(eq(catalogFiles.id, id))
+        .returning();
+
+      return deleted;
+    });
   }
 
   async listInstructions(params?: { scopes?: InstructionScope[] }): Promise<SystemInstruction[]> {
@@ -733,11 +899,52 @@ export class DatabaseStorage implements IStorage {
   private async refreshFileEmbedding(file: CatalogFile, item?: CatalogItem): Promise<void> {
     if (!file.textPreview) return;
 
-    const content = buildCatalogFileEmbeddingContent(file, item);
-    if (!content) return;
+    const startMs = Date.now();
+    const chunkSizeChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_SIZE_CHARS ?? 1800);
+    const overlapChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_OVERLAP_CHARS ?? 200);
+    const maxChunks = Number(process.env.CATALOG_FILE_EMBED_MAX_CHUNKS);
 
-    const embedding = await generateCatalogEmbedding(content);
-    if (!embedding || embedding.length === 0) return;
+    const files = await db
+      .select()
+      .from(catalogFiles)
+      .where(eq(catalogFiles.catalogItemId, file.catalogItemId))
+      .orderBy(desc(catalogFiles.createdAt));
+
+    const parentItem = item ?? await this.getCatalogItemById(file.catalogItemId);
+
+    const values: InsertCatalogItemEmbedding[] = [];
+    let totalChunks = 0;
+    let filesWithPreview = 0;
+    let previewChars = 0;
+
+    for (const candidate of files) {
+      if (!candidate.textPreview) continue;
+      filesWithPreview += 1;
+      previewChars += candidate.textPreview.length;
+      const chunks = chunkTextByChars(candidate.textPreview, {
+        chunkSizeChars,
+        overlapChars,
+        maxChunks: Number.isFinite(maxChunks) ? maxChunks : undefined,
+      });
+      totalChunks += chunks.length;
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        const content = buildCatalogFileEmbeddingChunkContent(candidate, chunks[index], parentItem ?? undefined);
+        if (!content) continue;
+
+        const embedding = await generateCatalogEmbedding(content);
+        if (!embedding || embedding.length === 0) continue;
+
+        values.push({
+          catalogItemId: candidate.catalogItemId,
+          catalogFileId: candidate.id,
+          source: "file",
+          chunkIndex: index,
+          content,
+          embedding,
+        });
+      }
+    }
 
     await db.transaction(async (tx) => {
       await tx
@@ -745,17 +952,18 @@ export class DatabaseStorage implements IStorage {
         .where(
           and(
             eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
-            eq(catalogItemEmbeddings.content, content),
+            eq(catalogItemEmbeddings.source, "file"),
           ),
         );
 
-      await tx.insert(catalogItemEmbeddings).values({
-        catalogItemId: file.catalogItemId,
-        source: "file",
-        content,
-        embedding,
-      });
+      if (values.length > 0) {
+        await tx.insert(catalogItemEmbeddings).values(values);
+      }
     });
+
+    console.log(
+      `[RAG] refreshFileEmbedding itemId=${file.catalogItemId} triggerFileId=${file.id} files=${filesWithPreview} previewChars=${previewChars} chunks=${totalChunks} embeddings=${values.length} durationMs=${Date.now() - startMs}`,
+    );
   }
 
   private async generateItemEmbedding(item: CatalogItem): Promise<void> {
@@ -780,6 +988,7 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(catalogItemEmbeddings).values({
         catalogItemId: item.id,
         source: "item",
+        chunkIndex: 0,
         content,
         embedding,
       });

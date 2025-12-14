@@ -4,8 +4,20 @@ import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
+import { parseOptionalPositiveInt } from "./text-chunking";
+import { extractPdfPreviewWithPdfJsWithStats, type PdfPreviewEngine } from "./pdfjs-preview";
 
 const DEFAULT_MAX_PREVIEW_LENGTH = Number.POSITIVE_INFINITY;
+const DEFAULT_PDF_PREVIEW_ENGINE: PdfPreviewEngine = "pdfjs+fallback";
+const DEFAULT_PDF_PREVIEW_MAX_PAGES = 8;
+const DEFAULT_PDF_PREVIEW_MAX_CHARS = 30_000;
+const DEFAULT_PDF_PREVIEW_TIMEOUT_MS = 6_000;
+
+function isPdfPreviewLoggingEnabled(): boolean {
+  const value = process.env.PDF_PREVIEW_LOG_ENABLED;
+  if (value == null) return true;
+  return value !== "false" && value !== "0";
+}
 
 function sanitizeText(text: string | undefined, maxLength: number = DEFAULT_MAX_PREVIEW_LENGTH): string | undefined {
   if (!text) return undefined;
@@ -68,12 +80,97 @@ async function extractDocxPreview(buffer: Buffer): Promise<string | undefined> {
   return result.value;
 }
 
-async function extractPdfPreview(buffer: Buffer): Promise<string | undefined> {
+async function extractPdfPreview(buffer: Buffer): Promise<{ text: string | undefined; totalPages: number } > {
   const parser = new PDFParse({ data: buffer });
   const parsed = await parser.getText();
   await parser.destroy();
 
-  return parsed.text;
+  return {
+    text: parsed.text,
+    totalPages: typeof parsed.total === "number" && Number.isFinite(parsed.total) ? parsed.total : 0,
+  };
+}
+
+function getPdfPreviewEngine(): PdfPreviewEngine {
+  const raw = (process.env.PDF_PREVIEW_ENGINE ?? DEFAULT_PDF_PREVIEW_ENGINE).toLowerCase().trim();
+  if (raw === "pdf-parse" || raw === "pdfparse") return "pdf-parse";
+  if (raw === "pdfjs") return "pdfjs";
+  if (raw === "pdfjs+fallback" || raw === "pdfjs-fallback" || raw === "pdfjs_fallback") return "pdfjs+fallback";
+  return DEFAULT_PDF_PREVIEW_ENGINE;
+}
+
+function getPdfPreviewLimits(maxLength: number) {
+  const maxPages = parseOptionalPositiveInt(process.env.PDF_PREVIEW_MAX_PAGES) ?? DEFAULT_PDF_PREVIEW_MAX_PAGES;
+  const maxCharsFromEnv = parseOptionalPositiveInt(process.env.PDF_PREVIEW_MAX_CHARS) ?? DEFAULT_PDF_PREVIEW_MAX_CHARS;
+  const timeoutMs = parseOptionalPositiveInt(process.env.PDF_PREVIEW_TIMEOUT_MS) ?? DEFAULT_PDF_PREVIEW_TIMEOUT_MS;
+
+  const maxChars = Number.isFinite(maxLength) && maxLength > 0
+    ? Math.min(Math.floor(maxLength), maxCharsFromEnv)
+    : maxCharsFromEnv;
+
+  return {
+    maxPages,
+    maxChars,
+    timeoutMs,
+  };
+}
+
+async function extractPdfPreviewWithEngine(buffer: Buffer, maxLength: number): Promise<string | undefined> {
+  const engine = getPdfPreviewEngine();
+  const limits = getPdfPreviewLimits(maxLength);
+  const loggingEnabled = isPdfPreviewLoggingEnabled();
+  const startMs = Date.now();
+
+  if (engine === "pdf-parse") {
+    const parsed = await extractPdfPreview(buffer);
+    const text = sanitizeText(parsed.text, limits.maxChars);
+    if (loggingEnabled) {
+      console.log(
+        `[CATALOG_PREVIEW] pdf engine=pdf-parse pages=${parsed.totalPages} chars=${text?.length ?? 0} durationMs=${Date.now() - startMs}`,
+      );
+    }
+    return text;
+  }
+
+  const attemptPdfJs = async () => {
+    return await extractPdfPreviewWithPdfJsWithStats(buffer, {
+      maxPages: limits.maxPages,
+      maxChars: limits.maxChars,
+      timeoutMs: limits.timeoutMs,
+    });
+  };
+
+  if (engine === "pdfjs") {
+    const result = await attemptPdfJs();
+    const text = sanitizeText(result.text, limits.maxChars);
+    if (loggingEnabled) {
+      console.log(
+        `[CATALOG_PREVIEW] pdf engine=pdfjs pages=${result.pagesProcessed} chars=${text?.length ?? 0} tables=${result.usedMarkdownTable} durationMs=${result.durationMs} (limits pages=${limits.maxPages} chars=${limits.maxChars} timeoutMs=${limits.timeoutMs})`,
+      );
+    }
+    return text;
+  }
+
+  try {
+    const result = await attemptPdfJs();
+    const text = sanitizeText(result.text, limits.maxChars);
+    if (loggingEnabled) {
+      console.log(
+        `[CATALOG_PREVIEW] pdf engine=pdfjs+fallback used=pdfjs pages=${result.pagesProcessed} chars=${text?.length ?? 0} tables=${result.usedMarkdownTable} durationMs=${result.durationMs} (limits pages=${limits.maxPages} chars=${limits.maxChars} timeoutMs=${limits.timeoutMs})`,
+      );
+    }
+    return text;
+  } catch (error) {
+    console.warn("[CATALOG] PDF.js falhou, usando fallback pdf-parse:", error);
+    const parsed = await extractPdfPreview(buffer);
+    const fallbackText = sanitizeText(parsed.text, limits.maxChars);
+    if (loggingEnabled) {
+      console.log(
+        `[CATALOG_PREVIEW] pdf engine=pdfjs+fallback used=pdf-parse pages=${parsed.totalPages} chars=${fallbackText?.length ?? 0} durationMs=${Date.now() - startMs} (limits pages=${limits.maxPages} chars=${limits.maxChars} timeoutMs=${limits.timeoutMs})`,
+      );
+    }
+    return fallbackText;
+  }
 }
 
 async function extractOdtPreview(buffer: Buffer): Promise<string | undefined> {
@@ -130,7 +227,7 @@ export async function extractTextPreview(file: Express.Multer.File, maxLength = 
     }
 
     if (mimeType === "application/pdf") {
-      return sanitizeText(await extractPdfPreview(buffer), maxLength);
+      return await extractPdfPreviewWithEngine(buffer, maxLength);
     }
 
     if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || mimeType === "application/msword") {
