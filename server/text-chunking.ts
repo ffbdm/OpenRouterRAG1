@@ -2,6 +2,14 @@ function normalizeWhitespace(input: string): string {
   return input.replace(/\s+/g, " ").trim();
 }
 
+export function parseOptionalPositiveInt(value: string | undefined): number | undefined {
+  if (typeof value !== "string") return undefined;
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
 export function chunkTextByChars(
   input: string,
   options?: {
@@ -27,4 +35,3 @@ export function chunkTextByChars(
 
   return chunks;
 }
-

@@ -7,6 +7,7 @@ import { generateCatalogEmbedding, embeddingsEnabled, getEmbeddingSettings } fro
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogSearchSource } from "../server/catalog-hybrid";
 import { scoreCatalogItemLexical } from "../server/catalog-lexical-ranker";
 import { extractSearchTokens } from "../server/text-utils";
+import { parseOptionalPositiveInt } from "../server/text-chunking";
 import { storage } from "../server/storage";
 import { catalogItemEmbeddings, catalogItems } from "../shared/schema";
 
@@ -46,6 +47,16 @@ async function searchCatalogVector(queryEmbedding: number[], query: string, limi
     return { results: [], thresholdApplied: false, threshold: undefined };
   }
 
+  const candidateMultiplier = Number(process.env.CATALOG_VECTOR_CANDIDATE_MULTIPLIER ?? 6);
+  const candidateMax = Number(process.env.CATALOG_VECTOR_CANDIDATE_MAX ?? 200);
+  const queryLimit = Math.min(
+    Number.isFinite(candidateMax) ? candidateMax : 200,
+    limit * (Number.isFinite(candidateMultiplier) && candidateMultiplier > 0 ? candidateMultiplier : 6),
+  );
+
+  const chunksPerItem = parseOptionalPositiveInt(process.env.CATALOG_VECTOR_CHUNKS_PER_ITEM) ?? 1;
+  const combinedSnippetMaxChars = parseOptionalPositiveInt(process.env.CATALOG_VECTOR_SNIPPET_MAX_CHARS) ?? 800;
+
   const embeddingParam = buildVectorParam(queryEmbedding);
   const distance = sql<number>`catalog_item_embeddings.embedding <#> ${embeddingParam}`;
 
@@ -67,14 +78,67 @@ async function searchCatalogVector(queryEmbedding: number[], query: string, limi
     .innerJoin(catalogItems, eq(catalogItemEmbeddings.catalogItemId, catalogItems.id))
     .where(and(...whereClauses))
     .orderBy(distance)
-    .limit(limit);
+    .limit(queryLimit);
 
-  const results: CatalogHybridHit[] = rows.map((row) => ({
-    item: row.item,
-    source: row.source as CatalogSearchSource,
-    score: row.score,
-    snippet: buildFocusedSnippet(row.content, query),
-  }));
+  type AggregatedHit = {
+    hit: CatalogHybridHit;
+    snippets: string[];
+    completed: boolean;
+  };
+
+  const deduped = new Map<number, AggregatedHit>();
+  let completedItems = 0;
+
+  for (const row of rows) {
+    const itemId = row.item.id;
+    const existing = deduped.get(itemId);
+    const candidateSnippet = buildFocusedSnippet(row.content, query);
+
+    if (existing) {
+      if (existing.snippets.length >= chunksPerItem) {
+        continue;
+      }
+      if (candidateSnippet && !existing.snippets.includes(candidateSnippet)) {
+        existing.snippets.push(candidateSnippet);
+        existing.hit.snippet = existing.snippets.join(" … ");
+        if (existing.hit.snippet.length > combinedSnippetMaxChars) {
+          existing.hit.snippet = `${existing.hit.snippet.slice(0, Math.max(0, combinedSnippetMaxChars - 1))}…`;
+        }
+      }
+
+      if (!existing.completed && existing.snippets.length >= chunksPerItem) {
+        existing.completed = true;
+        completedItems += 1;
+      }
+    } else {
+      if (deduped.size >= limit) {
+        continue;
+      }
+
+      const hit: CatalogHybridHit = {
+        item: row.item,
+        source: row.source as CatalogSearchSource,
+        score: row.score,
+        snippet: candidateSnippet,
+      };
+
+      deduped.set(itemId, { hit, snippets: candidateSnippet ? [candidateSnippet] : [], completed: false });
+
+      if (chunksPerItem <= 1) {
+        const created = deduped.get(itemId);
+        if (created) {
+          created.completed = true;
+        }
+        completedItems += 1;
+      }
+    }
+
+    if (deduped.size >= limit && completedItems >= limit) {
+      break;
+    }
+  }
+
+  const results = Array.from(deduped.values()).map((entry) => entry.hit);
 
   return { results, thresholdApplied, threshold };
 }
