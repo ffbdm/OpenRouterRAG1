@@ -77,6 +77,22 @@ class InMemoryCatalogStorage implements IStorage {
     };
   }
 
+  async searchCatalogFilesVector(): Promise<{
+    resultsByItemId: Record<number, never[]>;
+    vectorCount: number;
+    embeddingUsed: boolean;
+    fallbackReason?: string;
+    timingMs: number;
+  }> {
+    return {
+      resultsByItemId: {},
+      vectorCount: 0,
+      embeddingUsed: false,
+      fallbackReason: "not-implemented",
+      timingMs: 0,
+    };
+  }
+
   async listCatalogItems(): Promise<CatalogItem[]> {
     return this.items;
   }

@@ -11,6 +11,8 @@ import { registerInstructionRoutes } from "./instruction-routes";
 import { defaultInstructionSlugs, ensureDefaultInstructions, getDefaultInstructionContent } from "./instruction-defaults";
 import { normalizeIntent, planSearches, type ChatIntent } from "./chat-intents";
 import { registerWhatsAppRoutes } from "./whatsapp-routes";
+import { parseOptionalPositiveInt } from "./text-chunking";
+import { inferUseCatalogFiles } from "./catalog-files-intent";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -78,6 +80,30 @@ function buildCatalogPayload(query: string, result: CatalogHybridSearchResult): 
     .join(" || ");
 
   return `Busca híbrida (vetorial + lexical) para "${query}": ${summary}`;
+}
+
+function buildCatalogFilesPayload(params: {
+  query: string;
+  hybrid: CatalogHybridSearchResult;
+  resultsByItemId: Record<number, { originalName: string; snippet: string }[]>;
+}): string {
+  const entries = params.hybrid.results
+    .map((hit) => {
+      const chunks = params.resultsByItemId[hit.item.id] ?? [];
+      if (chunks.length === 0) return undefined;
+      const chunkSummary = chunks
+        .map((chunk, index) => `${index + 1}. ${chunk.originalName}: ${chunk.snippet}`)
+        .join(" || ");
+      return `${hit.item.name}: ${chunkSummary}`;
+    })
+    .filter(Boolean) as string[];
+
+  if (entries.length === 0) {
+    return `Trechos relevantes de anexos (enriquecimento; não altera ranking) para "${params.query}": nenhum trecho encontrado.`;
+  }
+
+  const joined = entries.join(" || ");
+  return `Trechos relevantes de anexos (enriquecimento; não altera ranking) para "${params.query}": ${joined}`;
 }
 
 function logHybridStats(label: string, result: CatalogHybridSearchResult) {
@@ -470,8 +496,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             type: "object",
             properties: {
               intent: { type: "string", enum: ["FAQ", "CATALOG", "MIST", "OTHER"] },
+              useCatalogFiles: { type: "boolean" },
             },
-            required: ["intent"],
+            required: ["intent", "useCatalogFiles"],
             additionalProperties: false,
           },
           strict: true,
@@ -493,6 +520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
       let classificationModelUsed: string | undefined;
       let rawIntent = "";
+      let useCatalogFiles = false;
 
       for (const [index, model] of classificationModelsToTry.entries()) {
         const hasNextModel = index < classificationModelsToTry.length - 1;
@@ -536,11 +564,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Tenta extrair JSON quando response_format é respeitado; senão, usa o conteúdo direto.
           let candidateIntent = rawContent;
+          let candidateUseCatalogFiles: boolean | undefined;
           if (rawContent.trim().startsWith("{")) {
             try {
               const parsed = JSON.parse(rawContent);
               if (parsed && typeof parsed.intent === "string") {
                 candidateIntent = parsed.intent;
+              }
+              if (parsed && typeof parsed.useCatalogFiles === "boolean") {
+                candidateUseCatalogFiles = parsed.useCatalogFiles;
               }
             } catch (error) {
               console.warn("[CLASSIFY] Falha ao fazer parse do JSON de intenção:", error);
@@ -553,6 +585,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             requestId: classifyResponse.headers.get("x-request-id"),
           };
           rawIntent = candidateIntent;
+          useCatalogFiles = typeof candidateUseCatalogFiles === "boolean"
+            ? candidateUseCatalogFiles
+            : inferUseCatalogFiles(userMessage);
           classificationModelUsed = model;
 
           if (!candidateIntent.trim() && hasNextModel) {
@@ -589,7 +624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const intent: ChatIntent = normalizeIntent(rawIntent);
 
-      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed})`);
+      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed}) useCatalogFiles=${useCatalogFiles}`);
       console.log("[MODELS] classify usado:", classificationModelUsed, "| answer:", answerModel);
 
       console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
@@ -608,6 +643,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let catalogItemsFound = 0;
       let ragSource: "hybrid" | undefined;
       let hybridResult: CatalogHybridSearchResult | undefined;
+      let catalogFilesUsed = false;
+      let catalogFilesChunks = 0;
+      let catalogFilesTimingMs = 0;
 
       const contextSections: string[] = [
         historySection,
@@ -682,6 +720,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const catalogPayload = buildCatalogPayload(userMessage, hybridSearch);
         contextSections.push(catalogPayload);
+
+        if (useCatalogFiles && hybridSearch.results.length > 0) {
+          const topN = parseOptionalPositiveInt(process.env.CATALOG_FILES_ENRICH_TOP_N) ?? 5;
+          const catalogItemIds = hybridSearch.results
+            .slice(0, Math.max(1, Math.min(topN, hybridSearch.results.length)))
+            .map((hit) => hit.item.id);
+
+          console.log(`[RAG] Enriquecimento por anexos habilitado: itens=${catalogItemIds.length} (topN=${topN})`);
+          const filesResult = await storage.searchCatalogFilesVector({ query: userMessage, catalogItemIds });
+          catalogFilesUsed = true;
+          catalogFilesChunks = filesResult.vectorCount;
+          catalogFilesTimingMs = filesResult.timingMs;
+
+          const filesPayload = buildCatalogFilesPayload({
+            query: userMessage,
+            hybrid: hybridSearch,
+            resultsByItemId: filesResult.resultsByItemId,
+          });
+
+          const maxChars = parseOptionalPositiveInt(process.env.CATALOG_FILES_CONTEXT_MAX_CHARS) ?? 2500;
+          contextSections.push(filesPayload.length > maxChars ? `${filesPayload.slice(0, Math.max(0, maxChars - 1))}…` : filesPayload);
+
+          logToolPayload({
+            toolName: "searchCatalogFiles",
+            args: {
+              query: userMessage,
+              itemIds: catalogItemIds,
+              intent,
+              useCatalogFiles,
+              timingMs: filesResult.timingMs,
+              fallbackReason: filesResult.fallbackReason,
+            },
+            resultCount: filesResult.vectorCount,
+            aiPayload: filesPayload,
+          });
+        } else {
+          contextSections.push("Trechos relevantes de anexos: não consultados para esta pergunta.");
+        }
 
         logToolPayload({
           toolName: "searchCatalog",
@@ -780,6 +856,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 timings: hybridResult.timings,
               }
             : undefined,
+          useCatalogFiles,
+          catalogFiles: catalogFilesUsed
+            ? {
+                used: true,
+                chunks: catalogFilesChunks,
+                timingMs: catalogFilesTimingMs,
+              }
+            : {
+                used: false,
+              },
         }
       });
     } catch (error) {

@@ -5,6 +5,7 @@ import {
   catalogItems,
   catalogFiles,
   catalogItemEmbeddings,
+  catalogItemEmbeddingSources,
   systemInstructions,
   type User,
   type InsertUser,
@@ -13,6 +14,7 @@ import {
   type InsertFaqEmbedding,
   type CatalogItem,
   type CatalogItemInput,
+  type CatalogItemEmbeddingSource,
   type InsertCatalogItemEmbedding,
   type CatalogFile,
   type InsertCatalogFile,
@@ -137,6 +139,27 @@ function buildVectorParam(embedding: number[]) {
   return sql`${literal}::vector`;
 }
 
+function parseCatalogVectorSources(raw: string | undefined): CatalogItemEmbeddingSource[] {
+  const fallback: CatalogItemEmbeddingSource[] = ["item"];
+  const allowed = new Set<string>(catalogItemEmbeddingSources);
+  const requested = (raw ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => allowed.has(value)) as CatalogItemEmbeddingSource[];
+
+  const withoutFiles = requested.filter((source) => source !== "file");
+  return withoutFiles.length > 0 ? withoutFiles : fallback;
+}
+
+export type CatalogFileVectorChunk = {
+  catalogItemId: number;
+  catalogFileId: number;
+  originalName: string;
+  score?: number;
+  snippet: string;
+};
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -144,6 +167,13 @@ export interface IStorage {
   searchFaqs(query: string, limit: number, options?: { queryContext?: string }): Promise<Faq[]>;
   searchCatalog(query: string, limit: number): Promise<CatalogItem[]>;
   searchCatalogHybrid(query: string, limit: number, options?: { queryContext?: string }): Promise<CatalogHybridSearchResult>;
+  searchCatalogFilesVector(params: { query: string; catalogItemIds: number[] }): Promise<{
+    resultsByItemId: Record<number, CatalogFileVectorChunk[]>;
+    vectorCount: number;
+    embeddingUsed: boolean;
+    fallbackReason?: string;
+    timingMs: number;
+  }>;
   listCatalogItems(params: {
     search?: string;
     status?: CatalogItem["status"] | "all";
@@ -387,11 +417,14 @@ export class DatabaseStorage implements IStorage {
 
     // Novo: Threshold de similaridade (menor = melhor; ex: -0.3 = cos_sim ~0.3)
     const threshold = Number(process.env.CATALOG_VECTOR_THRESHOLD ?? -0.5);
+    const vectorSources = parseCatalogVectorSources(process.env.CATALOG_VECTOR_SOURCES);
     const whereClauses: SQL[] = [eq(catalogItems.status, "ativo")];
     if (Number.isFinite(threshold)) {
       whereClauses.push(sql`${distance} <= ${threshold}`);
       console.log(`[VECTOR] Threshold aplicado: score <= ${threshold}`);
     }
+    whereClauses.push(inArray(catalogItemEmbeddings.source, vectorSources));
+    console.log(`[VECTOR] Catálogo: fontes vetoriais (ranking) => ${vectorSources.join(",")}`);
 
     try {
       const rows = await db
@@ -480,6 +513,133 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.warn("[DB] Falha na busca vetorial do catálogo:", error);
       return { results: [], error: error instanceof Error ? error.message : "unknown" };
+    }
+  }
+
+  async searchCatalogFilesVector(params: { query: string; catalogItemIds: number[] }): Promise<{
+    resultsByItemId: Record<number, CatalogFileVectorChunk[]>;
+    vectorCount: number;
+    embeddingUsed: boolean;
+    fallbackReason?: string;
+    timingMs: number;
+  }> {
+    const startedAt = Date.now();
+    const normalizedIds = Array.from(new Set(params.catalogItemIds.filter((id) => Number.isInteger(id) && id > 0)));
+    if (normalizedIds.length === 0) {
+      return { resultsByItemId: {}, vectorCount: 0, embeddingUsed: false, fallbackReason: "no-item-ids", timingMs: Date.now() - startedAt };
+    }
+
+    const chunksPerItem = parseOptionalPositiveInt(process.env.CATALOG_FILES_VECTOR_CHUNKS_PER_ITEM) ?? 2;
+    const snippetMaxChars = parseOptionalPositiveInt(process.env.CATALOG_FILES_VECTOR_SNIPPET_MAX_CHARS) ?? 900;
+    const maxChunksPerFile = parseOptionalPositiveInt(process.env.CATALOG_FILES_VECTOR_MAX_CHUNKS_PER_FILE) ?? 1;
+
+    const candidateMultiplier = Number(process.env.CATALOG_FILES_VECTOR_CANDIDATE_MULTIPLIER ?? 8);
+    const candidateMax = Number(process.env.CATALOG_FILES_VECTOR_CANDIDATE_MAX ?? 400);
+    const queryLimit = Math.min(
+      Number.isFinite(candidateMax) ? candidateMax : 400,
+      chunksPerItem * normalizedIds.length * (Number.isFinite(candidateMultiplier) && candidateMultiplier > 0 ? candidateMultiplier : 8),
+    );
+
+    const embedding = await generateCatalogEmbedding(params.query);
+    if (!embedding || embedding.length === 0) {
+      return {
+        resultsByItemId: {},
+        vectorCount: 0,
+        embeddingUsed: false,
+        fallbackReason: embeddingsEnabled() ? "embedding-generation-failed" : "embedding-disabled",
+        timingMs: Date.now() - startedAt,
+      };
+    }
+
+    const embeddingParam = buildVectorParam(embedding);
+    const distance = sql<number>`catalog_item_embeddings.embedding <#> ${embeddingParam}`;
+    const threshold = Number(process.env.CATALOG_FILES_VECTOR_THRESHOLD ?? -0.5);
+    const whereClauses: SQL[] = [
+      eq(catalogItems.status, "ativo"),
+      eq(catalogItemEmbeddings.source, "file"),
+      inArray(catalogItemEmbeddings.catalogItemId, normalizedIds),
+    ];
+    if (Number.isFinite(threshold)) {
+      whereClauses.push(sql`${distance} <= ${threshold}`);
+      console.log(`[VECTOR] Anexos threshold aplicado: score <= ${threshold}`);
+    }
+
+    try {
+      const rows = await db
+        .select({
+          catalogItemId: catalogItemEmbeddings.catalogItemId,
+          catalogFileId: catalogItemEmbeddings.catalogFileId,
+          originalName: catalogFiles.originalName,
+          content: catalogItemEmbeddings.content,
+          score: distance,
+        })
+        .from(catalogItemEmbeddings)
+        .innerJoin(catalogItems, eq(catalogItemEmbeddings.catalogItemId, catalogItems.id))
+        .innerJoin(catalogFiles, eq(catalogItemEmbeddings.catalogFileId, catalogFiles.id))
+        .where(and(...whereClauses))
+        .orderBy(distance)
+        .limit(queryLimit);
+
+      const resultsByItemId: Record<number, CatalogFileVectorChunk[]> = {};
+      const perItemCounts = new Map<number, number>();
+      const perFileCounts = new Map<number, number>();
+      const perItemSeenSnippets = new Map<number, Set<string>>();
+
+      for (const row of rows) {
+        const itemId = row.catalogItemId;
+        const fileId = row.catalogFileId;
+        if (!fileId) continue;
+
+        const itemCount = perItemCounts.get(itemId) ?? 0;
+        if (itemCount >= chunksPerItem) continue;
+
+        const fileCount = perFileCounts.get(fileId) ?? 0;
+        if (fileCount >= maxChunksPerFile) continue;
+
+        const snippet = buildFocusedSnippet(row.content, params.query, snippetMaxChars);
+        if (!snippet) continue;
+
+        const seen = perItemSeenSnippets.get(itemId) ?? new Set<string>();
+        if (seen.has(snippet)) continue;
+        seen.add(snippet);
+        perItemSeenSnippets.set(itemId, seen);
+
+        const entry: CatalogFileVectorChunk = {
+          catalogItemId: itemId,
+          catalogFileId: fileId,
+          originalName: row.originalName,
+          score: row.score,
+          snippet,
+        };
+
+        resultsByItemId[itemId] = resultsByItemId[itemId] ?? [];
+        resultsByItemId[itemId].push(entry);
+        perItemCounts.set(itemId, itemCount + 1);
+        perFileCounts.set(fileId, fileCount + 1);
+      }
+
+      const vectorCount = Object.values(resultsByItemId).reduce((sum, entries) => sum + entries.length, 0);
+      if (vectorCount > 0) {
+        console.log(`[VECTOR] Anexos: chunks selecionados=${vectorCount} itens=${Object.keys(resultsByItemId).length}`);
+      } else {
+        console.log("[VECTOR] Anexos: nenhum chunk selecionado.");
+      }
+
+      return {
+        resultsByItemId,
+        vectorCount,
+        embeddingUsed: true,
+        timingMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      console.warn("[DB] Falha na busca vetorial de anexos do catálogo:", error);
+      return {
+        resultsByItemId: {},
+        vectorCount: 0,
+        embeddingUsed: true,
+        fallbackReason: error instanceof Error ? error.message : "unknown",
+        timingMs: Date.now() - startedAt,
+      };
     }
   }
 
