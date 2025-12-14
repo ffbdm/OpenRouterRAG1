@@ -719,9 +719,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .slice(0, Math.max(1, Math.min(topN, hybridSearch.results.length)))
             .map((hit) => hit.item.id);
 
-          const filesVectorQuery = historySummary?.trim() || userMessage;
+          const filesVectorQuery = catalogKeywordQuery?.trim() || userMessage;
           console.log(`[RAG] Enriquecimento por anexos habilitado: itens=${catalogItemIds.length} (topN=${topN})`);
-          console.log(`[RAG] Query vetorial (anexos): ${filesVectorQuery === userMessage ? "userMessage" : "historySummary"}`);
+          console.log(`[RAG] Query vetorial (anexos): ${filesVectorQuery === userMessage ? "userMessage" : "catalogQuery"}`);
           const filesResult = await storage.searchCatalogFilesVector({ query: filesVectorQuery, catalogItemIds });
           catalogFilesUsed = true;
           catalogFilesChunks = filesResult.vectorCount;
