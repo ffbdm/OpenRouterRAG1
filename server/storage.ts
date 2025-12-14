@@ -899,6 +899,7 @@ export class DatabaseStorage implements IStorage {
   private async refreshFileEmbedding(file: CatalogFile, item?: CatalogItem): Promise<void> {
     if (!file.textPreview) return;
 
+    const startMs = Date.now();
     const chunkSizeChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_SIZE_CHARS ?? 1800);
     const overlapChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_OVERLAP_CHARS ?? 200);
     const maxChunks = Number(process.env.CATALOG_FILE_EMBED_MAX_CHUNKS);
@@ -912,14 +913,20 @@ export class DatabaseStorage implements IStorage {
     const parentItem = item ?? await this.getCatalogItemById(file.catalogItemId);
 
     const values: InsertCatalogItemEmbedding[] = [];
+    let totalChunks = 0;
+    let filesWithPreview = 0;
+    let previewChars = 0;
 
     for (const candidate of files) {
       if (!candidate.textPreview) continue;
+      filesWithPreview += 1;
+      previewChars += candidate.textPreview.length;
       const chunks = chunkTextByChars(candidate.textPreview, {
         chunkSizeChars,
         overlapChars,
         maxChunks: Number.isFinite(maxChunks) ? maxChunks : undefined,
       });
+      totalChunks += chunks.length;
 
       for (let index = 0; index < chunks.length; index += 1) {
         const content = buildCatalogFileEmbeddingChunkContent(candidate, chunks[index], parentItem ?? undefined);
@@ -953,6 +960,10 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(catalogItemEmbeddings).values(values);
       }
     });
+
+    console.log(
+      `[RAG] refreshFileEmbedding itemId=${file.catalogItemId} triggerFileId=${file.id} files=${filesWithPreview} previewChars=${previewChars} chunks=${totalChunks} embeddings=${values.length} durationMs=${Date.now() - startMs}`,
+    );
   }
 
   private async generateItemEmbedding(item: CatalogItem): Promise<void> {

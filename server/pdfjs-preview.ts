@@ -9,6 +9,14 @@ export type PdfJsPreviewOptions = {
   columnGapRatio?: number;
 };
 
+export type PdfJsPreviewResult = {
+  text: string | undefined;
+  pagesProcessed: number;
+  outputChars: number;
+  durationMs: number;
+  usedMarkdownTable: boolean;
+};
+
 type PositionedTextItem = {
   text: string;
   x: number;
@@ -183,7 +191,8 @@ function detectAndRenderTables(lines: Line[], options: Required<Pick<PdfJsPrevie
   return output.filter((line) => line.trim());
 }
 
-export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJsPreviewOptions): Promise<string | undefined> {
+export async function extractPdfPreviewWithPdfJsWithStats(buffer: Buffer, options?: PdfJsPreviewOptions): Promise<PdfJsPreviewResult> {
+  const startMs = Date.now();
   const resolvedMaxPages = typeof options?.maxPages === "number" && options.maxPages > 0 ? Math.floor(options.maxPages) : undefined;
   const resolvedMaxChars = typeof options?.maxChars === "number" && options.maxChars > 0 ? Math.floor(options.maxChars) : undefined;
 
@@ -201,6 +210,8 @@ export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJs
 
       const outputLines: string[] = [];
       let outputLength = 0;
+      let pagesProcessed = 0;
+      let usedMarkdownTable = false;
 
       const pushLine = (line: string) => {
         outputLines.push(line);
@@ -210,6 +221,7 @@ export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJs
       for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
         const page = await doc.getPage(pageNumber);
         const textContent = await page.getTextContent();
+        pagesProcessed += 1;
 
         const items: PositionedTextItem[] = [];
         for (const raw of textContent.items as Array<Record<string, unknown>>) {
@@ -247,6 +259,7 @@ export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJs
         for (const line of renderedLines) {
           if (!line.trim()) continue;
           pushLine(line);
+          if (!usedMarkdownTable && line.startsWith("| ") && line.includes("| ---")) usedMarkdownTable = true;
           if (resolvedMaxChars && outputLength >= resolvedMaxChars) break;
         }
 
@@ -256,8 +269,15 @@ export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJs
       }
 
       const combined = outputLines.join("\n").trim();
-      if (!combined) return undefined;
-      return resolvedMaxChars ? combined.slice(0, resolvedMaxChars) : combined;
+      const text = combined ? (resolvedMaxChars ? combined.slice(0, resolvedMaxChars) : combined) : undefined;
+      const durationMs = Date.now() - startMs;
+      return {
+        text,
+        pagesProcessed,
+        outputChars: text?.length ?? 0,
+        durationMs,
+        usedMarkdownTable,
+      };
     } finally {
       await doc.destroy();
     }
@@ -270,4 +290,9 @@ export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJs
       // ignore
     }
   });
+}
+
+export async function extractPdfPreviewWithPdfJs(buffer: Buffer, options?: PdfJsPreviewOptions): Promise<string | undefined> {
+  const result = await extractPdfPreviewWithPdfJsWithStats(buffer, options);
+  return result.text;
 }
