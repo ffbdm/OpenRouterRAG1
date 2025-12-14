@@ -53,21 +53,22 @@ const openRouterTimeoutMs = parseOptionalPositiveInt(process.env.OPENROUTER_TIME
 const openRouterSummaryTimeoutMs = parseOptionalPositiveInt(process.env.OPENROUTER_TIMEOUT_SUMMARY_MS)
   ?? Math.min(openRouterTimeoutMs, 8_000);
 
-async function fetchWithTimeout(
+async function fetchTextWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
   label: string,
-): Promise<Response> {
+): Promise<{ response: Response; bodyText: string }> {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = Date.now();
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
+    const bodyText = await response.text();
     const elapsedMs = Date.now() - startedAt;
     console.log(`[HTTP] ${label} status=${response.status} elapsedMs=${elapsedMs}`);
-    return response;
+    return { response, bodyText };
   } catch (error) {
     const elapsedMs = Date.now() - startedAt;
     if (controller.signal.aborted) {
@@ -288,7 +289,7 @@ async function summarizeHistory(
 
   try {
     const callSummary = async (useResponseFormat: boolean) => {
-      const response = await fetchWithTimeout(
+      const { response, bodyText } = await fetchTextWithTimeout(
         "https://openrouter.ai/api/v1/chat/completions",
         {
           method: "POST",
@@ -310,27 +311,32 @@ async function summarizeHistory(
         "[OPENROUTER] summarizeHistory",
       );
 
-      return response;
+      return { response, bodyText };
     };
 
-    let response = await callSummary(true);
+    let { response, bodyText } = await callSummary(true);
     if (!response.ok) {
-      const errorBody = await response.text();
-      console.warn(`[SUMMARY] Falha ao gerar resumo (status=${response.status}):`, errorBody);
+      console.warn(`[SUMMARY] Falha ao gerar resumo (status=${response.status}):`, bodyText);
 
       if (response.status === 400) {
         console.warn("[SUMMARY] Tentando novamente sem response_format (compatibilidade de modelo).");
-        response = await callSummary(false);
+        ({ response, bodyText } = await callSummary(false));
       }
     }
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      console.warn(`[SUMMARY] Falha ao gerar resumo (fallback status=${response.status}):`, errorBody);
+      console.warn(`[SUMMARY] Falha ao gerar resumo (fallback status=${response.status}):`, bodyText);
       return undefined;
     }
 
-    const data = await response.json();
+    let data: any;
+    try {
+      data = JSON.parse(bodyText);
+    } catch (error) {
+      console.warn("[SUMMARY] Falha ao parsear JSON bruto do OpenRouter:", error);
+      console.warn("[SUMMARY] Body (truncado):", truncateForLog(bodyText, 400));
+      return undefined;
+    }
     const message = data?.choices?.[0]?.message ?? {};
     const rawContent = typeof message.content === "string" ? message.content : "";
     if (!rawContent.trim()) return undefined;
@@ -508,6 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[SUMMARY] Config: trigger=${historySummaryTrigger} historyLen=${history?.length ?? 0} timeoutMs=${openRouterSummaryTimeoutMs}`);
       const historySignals = await summarizeHistory(history, userMessage, apiKey, answerModel);
+      console.log(`[SUMMARY] Resultado: ${historySignals ? "ok" : "skip/erro"}`);
       const historySummary = historySignals?.summary;
       const catalogKeywordQuery = historySignals?.catalogQuery;
 
@@ -558,7 +565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[OPENROUTER] Chamada de classificação iniciada (model=${model})`);
 
         try {
-          const classifyResponse = await fetchWithTimeout(
+          const { response: classifyResponse, bodyText: classifyBody } = await fetchTextWithTimeout(
             "https://openrouter.ai/api/v1/chat/completions",
             {
               method: "POST",
@@ -582,19 +589,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
 
           if (!classifyResponse.ok) {
-            const errorBody = await classifyResponse.text();
             console.log(`[ERROR] Classification status (${model}):`, classifyResponse.status);
-            console.log(`[ERROR] Classification body (${model}):`, errorBody);
+            console.log(`[ERROR] Classification body (${model}):`, classifyBody);
 
             if (hasNextModel) {
               console.warn(`[CLASSIFY] Tentando fallback de classificação: ${classificationModelsToTry[index + 1]}`);
               continue;
             }
 
-            throw new Error(`OpenRouter API error (classify): ${classifyResponse.status} ${classifyResponse.statusText} - ${errorBody}`);
+            throw new Error(`OpenRouter API error (classify): ${classifyResponse.status} ${classifyResponse.statusText} - ${classifyBody}`);
           }
 
-          const classifyJson = await classifyResponse.json();
+          let classifyJson: any;
+          try {
+            classifyJson = JSON.parse(classifyBody);
+          } catch (error) {
+            console.warn(`[CLASSIFY] Falha ao parsear JSON do OpenRouter (model=${model}):`, error);
+            console.warn("[CLASSIFY] Body (truncado):", truncateForLog(classifyBody, 400));
+            if (hasNextModel) {
+              console.warn(`[CLASSIFY] Tentando fallback de classificação: ${classificationModelsToTry[index + 1]}`);
+              continue;
+            }
+            throw new Error("Resposta inválida do OpenRouter (classify): JSON malformado.");
+          }
           const classifyMessage = classifyJson.choices?.[0]?.message ?? {};
           const rawContent = typeof classifyMessage.content === "string" ? classifyMessage.content : "";
 
@@ -853,7 +870,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`     Content: ${loggedContent}`);
       });
 
-      const finalResponse = await fetchWithTimeout(
+      const { response: finalResponse, bodyText: finalBodyText } = await fetchTextWithTimeout(
         "https://openrouter.ai/api/v1/chat/completions",
         {
           method: "POST",
@@ -874,14 +891,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       if (!finalResponse.ok) {
-        const errorBody = await finalResponse.text();
         console.log("[ERROR] Final Response status:", finalResponse.status);
-        console.log("[ERROR] Final Response body:", errorBody);
-        throw new Error(`OpenRouter API error (answer): ${finalResponse.status} - ${errorBody}`);
+        console.log("[ERROR] Final Response body:", finalBodyText);
+        throw new Error(`OpenRouter API error (answer): ${finalResponse.status} - ${finalBodyText}`);
       }
 
-      const finalData = await finalResponse.json();
-      const finalText = finalData.choices[0].message.content;
+      let finalData: any;
+      try {
+        finalData = JSON.parse(finalBodyText);
+      } catch (error) {
+        console.error("[ERROR] Falha ao parsear JSON do OpenRouter (answer):", error);
+        console.error("[ERROR] Body (truncado):", truncateForLog(finalBodyText, 400));
+        throw new Error("Resposta inválida do OpenRouter (answer): JSON malformado.");
+      }
+      const finalText = finalData.choices?.[0]?.message?.content;
+      if (typeof finalText !== "string") {
+        console.error("[ERROR] Resposta do OpenRouter sem message.content:", JSON.stringify(finalData?.choices?.[0] ?? null));
+        throw new Error("Resposta inválida do OpenRouter (answer): sem conteúdo.");
+      }
 
       console.log("[OPENROUTER] Resposta final gerada");
       console.log("  Resposta:", finalText);
