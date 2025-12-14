@@ -36,8 +36,9 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
 }
 
 const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
-// Resumo: dispara a partir de 2 mensagens válidas e corta o número de mensagens pelo limite configurado.
-const historySummaryTrigger = 2;
+// Resumo: por padrão dispara a partir de 1 mensagem no histórico (ou seja, já no 2º envio do usuário, se o client enviar history).
+// Pode ser ajustado via CHAT_HISTORY_SUMMARY_TRIGGER.
+const historySummaryTrigger = resolveLimit(Number(process.env.CHAT_HISTORY_SUMMARY_TRIGGER), 1, 10);
 const historySummaryCharLimit = 800;
 const historySummaryMessageLimit = chatHistoryLimit;
 
