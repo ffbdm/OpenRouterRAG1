@@ -13,11 +13,7 @@ import { normalizeIntent, planSearches, type ChatIntent } from "./chat-intents";
 import { registerWhatsAppRoutes } from "./whatsapp-routes";
 import { parseOptionalPositiveInt } from "./text-chunking";
 import { inferUseCatalogFiles } from "./catalog-files-intent";
-
-type Message = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
+import { buildClassificationMessages, type Message } from "./chat-prompts";
 
 type ChatHistoryMessage = {
   role: "user" | "assistant";
@@ -476,15 +472,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const historySummary = historySignals?.summary;
       const catalogKeywordQuery = historySignals?.catalogQuery;
 
-      const classificationHistoryMessages: Message[] = historySummary
-        ? [{ role: "system", content: `Resumo automático do histórico: ${historySummary}` }]
-        : [];
-
-      const classificationMessages: Message[] = [
-        { role: "system", content: classificationContent },
-        ...classificationHistoryMessages,
-        { role: "user", content: userMessage },
-      ];
+      const classificationMessages = buildClassificationMessages({
+        classificationContent,
+        historySummary,
+        userMessage,
+      });
 
       console.log("[OPENROUTER] Chamada de classificação iniciada");
 
