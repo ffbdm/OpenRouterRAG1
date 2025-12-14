@@ -13,6 +13,7 @@ import {
   type InsertFaqEmbedding,
   type CatalogItem,
   type CatalogItemInput,
+  type InsertCatalogItemEmbedding,
   type CatalogFile,
   type InsertCatalogFile,
   type SystemInstruction,
@@ -20,14 +21,15 @@ import {
   type InsertSystemInstruction,
 } from "@shared/schema";
 import { db } from "./db";
-import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { extractSearchTokens, normalizeText } from "./text-utils";
 import { generateCatalogEmbedding, embeddingsEnabled } from "./embeddings";
-import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
+import { buildCatalogFileEmbeddingChunkContent, buildCatalogItemEmbeddingContent, buildFocusedSnippet, buildSnippet } from "./catalog-embedding-utils";
 import { clampCatalogLimit, mapLexicalResults, mergeCatalogResults, type CatalogHybridHit, type CatalogHybridSearchResult, type CatalogSearchSource } from "./catalog-hybrid";
 import { clampFaqLimit, mapFaqLexicalResults, mergeFaqResults, type FaqHybridHit, type FaqHybridSearchResult } from "./faq-hybrid";
 import { buildFaqEmbeddingContent, buildFaqSnippet } from "./faq-embedding-utils";
 import { scoreCatalogItemLexical } from "./catalog-lexical-ranker";
+import { chunkTextByChars } from "./text-chunking";
 
 let faqNormalizationEnsured = false;
 
@@ -370,6 +372,13 @@ export class DatabaseStorage implements IStorage {
       return { results: [] };
     }
 
+    const candidateMultiplier = Number(process.env.CATALOG_VECTOR_CANDIDATE_MULTIPLIER ?? 6);
+    const candidateMax = Number(process.env.CATALOG_VECTOR_CANDIDATE_MAX ?? 200);
+    const queryLimit = Math.min(
+      Number.isFinite(candidateMax) ? candidateMax : 200,
+      limit * (Number.isFinite(candidateMultiplier) && candidateMultiplier > 0 ? candidateMultiplier : 6),
+    );
+
     const embeddingParam = buildVectorParam(queryEmbedding);
     const distance = sql<number>`catalog_item_embeddings.embedding <#> ${embeddingParam}`;
 
@@ -393,14 +402,21 @@ export class DatabaseStorage implements IStorage {
         .innerJoin(catalogItems, eq(catalogItemEmbeddings.catalogItemId, catalogItems.id))
         .where(and(...whereClauses))
         .orderBy(distance)
-        .limit(limit);
+        .limit(queryLimit);
 
-      const results = rows.map((row) => ({
-        item: row.item,
-        source: row.source as CatalogSearchSource,
-        score: row.score,
-        snippet: buildFocusedSnippet(row.content, query),
-      }));
+      const deduped = new Map<number, CatalogHybridHit>();
+      for (const row of rows) {
+        if (deduped.has(row.item.id)) continue;
+        deduped.set(row.item.id, {
+          item: row.item,
+          source: row.source as CatalogSearchSource,
+          score: row.score,
+          snippet: buildFocusedSnippet(row.content, query),
+        });
+        if (deduped.size >= limit) break;
+      }
+
+      const results = Array.from(deduped.values());
 
       if (results.length > 0) {
         const scores = results.map((r) => r.score?.toFixed(4) ?? 'N/A').join(', ');
@@ -596,6 +612,21 @@ export class DatabaseStorage implements IStorage {
       this.generateItemEmbedding(updated).catch((error) => {
         console.warn(`[DB] Falha ao regenerar embedding item ${updated.id}:`, error);
       });
+
+      if (embeddingsEnabled()) {
+        const [file] = await db
+          .select()
+          .from(catalogFiles)
+          .where(eq(catalogFiles.catalogItemId, updated.id))
+          .orderBy(desc(catalogFiles.createdAt))
+          .limit(1);
+
+        if (file && file.textPreview) {
+          this.refreshFileEmbedding(file, updated).catch((error) => {
+            console.warn(`[DB] Falha ao regenerar embeddings de arquivos do item ${updated.id}:`, error);
+          });
+        }
+      }
     }
 
     return updated;
@@ -688,34 +719,14 @@ export class DatabaseStorage implements IStorage {
     const file = await this.getCatalogFileById(id);
     if (!file) return undefined;
 
-    const parentItem = await this.getCatalogItemById(file.catalogItemId);
-    const contentWithItem = buildCatalogFileEmbeddingContent(file, parentItem || undefined);
-    const contentWithoutItem = buildCatalogFileEmbeddingContent(file);
-    const normalizedPreview = (file.textPreview ?? "").replace(/\s+/g, " ").trim();
-    const previewNeedle = normalizedPreview.length > 0
-      ? normalizedPreview.slice(0, Math.min(normalizedPreview.length, 160))
-      : "";
-
-    const contentClauses: SQL[] = [
-      eq(catalogItemEmbeddings.content, contentWithItem),
-      eq(catalogItemEmbeddings.content, contentWithoutItem),
-    ];
-
-    if (previewNeedle.length > 0) {
-      const fuzzyMatch = and(
-        ilike(
-          catalogItemEmbeddings.content,
-          `%anexo ${escapeLikePattern(file.originalName)}.%`,
-        ),
-        ilike(
-          catalogItemEmbeddings.content,
-          `%${escapeLikePattern(previewNeedle)}%`,
-        ),
-      );
-      if (fuzzyMatch) {
-        contentClauses.push(fuzzyMatch);
-      }
-    }
+    const baseMatch = and(
+      eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
+      eq(catalogItemEmbeddings.source, "file"),
+      ilike(
+        catalogItemEmbeddings.content,
+        `%anexo ${escapeLikePattern(file.originalName)}.%`,
+      ),
+    );
 
     return await db.transaction(async (tx) => {
       await tx
@@ -724,7 +735,10 @@ export class DatabaseStorage implements IStorage {
           and(
             eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
             eq(catalogItemEmbeddings.source, "file"),
-            or(...contentClauses),
+            or(
+              eq(catalogItemEmbeddings.catalogFileId, file.id),
+              and(isNull(catalogItemEmbeddings.catalogFileId), baseMatch),
+            ),
           ),
         );
 
@@ -832,11 +846,45 @@ export class DatabaseStorage implements IStorage {
   private async refreshFileEmbedding(file: CatalogFile, item?: CatalogItem): Promise<void> {
     if (!file.textPreview) return;
 
-    const content = buildCatalogFileEmbeddingContent(file, item);
-    if (!content) return;
+    const chunkSizeChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_SIZE_CHARS ?? 1800);
+    const overlapChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_OVERLAP_CHARS ?? 200);
+    const maxChunks = Number(process.env.CATALOG_FILE_EMBED_MAX_CHUNKS);
 
-    const embedding = await generateCatalogEmbedding(content);
-    if (!embedding || embedding.length === 0) return;
+    const files = await db
+      .select()
+      .from(catalogFiles)
+      .where(eq(catalogFiles.catalogItemId, file.catalogItemId))
+      .orderBy(desc(catalogFiles.createdAt));
+
+    const parentItem = item ?? await this.getCatalogItemById(file.catalogItemId);
+
+    const values: InsertCatalogItemEmbedding[] = [];
+
+    for (const candidate of files) {
+      if (!candidate.textPreview) continue;
+      const chunks = chunkTextByChars(candidate.textPreview, {
+        chunkSizeChars,
+        overlapChars,
+        maxChunks: Number.isFinite(maxChunks) ? maxChunks : undefined,
+      });
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        const content = buildCatalogFileEmbeddingChunkContent(candidate, chunks[index], parentItem ?? undefined);
+        if (!content) continue;
+
+        const embedding = await generateCatalogEmbedding(content);
+        if (!embedding || embedding.length === 0) continue;
+
+        values.push({
+          catalogItemId: candidate.catalogItemId,
+          catalogFileId: candidate.id,
+          source: "file",
+          chunkIndex: index,
+          content,
+          embedding,
+        });
+      }
+    }
 
     await db.transaction(async (tx) => {
       await tx
@@ -844,16 +892,13 @@ export class DatabaseStorage implements IStorage {
         .where(
           and(
             eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
-            eq(catalogItemEmbeddings.content, content),
+            eq(catalogItemEmbeddings.source, "file"),
           ),
         );
 
-      await tx.insert(catalogItemEmbeddings).values({
-        catalogItemId: file.catalogItemId,
-        source: "file",
-        content,
-        embedding,
-      });
+      if (values.length > 0) {
+        await tx.insert(catalogItemEmbeddings).values(values);
+      }
     });
   }
 
@@ -879,6 +924,7 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(catalogItemEmbeddings).values({
         catalogItemId: item.id,
         source: "item",
+        chunkIndex: 0,
         content,
         embedding,
       });

@@ -10,8 +10,9 @@ import {
   type InsertCatalogItemEmbedding,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { buildCatalogFileEmbeddingContent, buildCatalogItemEmbeddingContent } from "../server/catalog-embedding-utils";
+import { buildCatalogFileEmbeddingChunkContent, buildCatalogItemEmbeddingContent } from "../server/catalog-embedding-utils";
 import { embeddingsEnabled, generateCatalogEmbedding, getEmbeddingSettings } from "../server/embeddings";
+import { chunkTextByChars } from "../server/text-chunking";
 
 async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
   const values: InsertCatalogItemEmbedding[] = [];
@@ -23,12 +24,17 @@ async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
     values.push({
       catalogItemId: item.id,
       source: "item",
+      chunkIndex: 0,
       content: itemContent,
       embedding: itemEmbedding,
     });
   } else {
     console.warn(`[SEED] Falha ao gerar embedding do item ${item.id} (${item.name}).`);
   }
+
+  const chunkSizeChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_SIZE_CHARS ?? 1800);
+  const overlapChars = Number(process.env.CATALOG_FILE_EMBED_CHUNK_OVERLAP_CHARS ?? 200);
+  const maxChunks = Number(process.env.CATALOG_FILE_EMBED_MAX_CHUNKS);
 
   // Generate file embeddings if any
   const files = await db
@@ -39,19 +45,29 @@ async function seedEmbeddingsForItem(item: CatalogItem): Promise<number> {
   for (const file of files) {
     if (!file.textPreview) continue;
 
-    const content = buildCatalogFileEmbeddingContent(file, item);
-    const embedding = await generateCatalogEmbedding(content);
-    if (!embedding) {
-      console.warn(`[SEED] Falha ao gerar embedding do arquivo ${file.id} (item ${item.id}).`);
-      continue;
-    }
-
-    values.push({
-      catalogItemId: item.id,
-      source: "file",
-      content,
-      embedding,
+    const chunks = chunkTextByChars(file.textPreview, {
+      chunkSizeChars,
+      overlapChars,
+      maxChunks: Number.isFinite(maxChunks) ? maxChunks : undefined,
     });
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const content = buildCatalogFileEmbeddingChunkContent(file, chunks[index], item);
+      const embedding = await generateCatalogEmbedding(content);
+      if (!embedding) {
+        console.warn(`[SEED] Falha ao gerar embedding do arquivo ${file.id} (item ${item.id}, chunk ${index}).`);
+        continue;
+      }
+
+      values.push({
+        catalogItemId: item.id,
+        catalogFileId: file.id,
+        source: "file",
+        chunkIndex: index,
+        content,
+        embedding,
+      });
+    }
   }
 
   // Delete old and insert new
