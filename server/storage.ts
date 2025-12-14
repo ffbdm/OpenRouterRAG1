@@ -60,6 +60,13 @@ async function ensureFaqQuestionNormalization() {
     faqNormalizationEnsured = true;
 }
 
+function escapeLikePattern(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+}
+
 function buildCatalogSearchCondition(query: string) {
   const tokens = extractSearchTokens(query);
   const normalizedQuery = normalizeText(query);
@@ -678,12 +685,56 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCatalogFile(id: number): Promise<CatalogFile | undefined> {
-    const [deleted] = await db
-      .delete(catalogFiles)
-      .where(eq(catalogFiles.id, id))
-      .returning();
+    const file = await this.getCatalogFileById(id);
+    if (!file) return undefined;
 
-    return deleted;
+    const parentItem = await this.getCatalogItemById(file.catalogItemId);
+    const contentWithItem = buildCatalogFileEmbeddingContent(file, parentItem || undefined);
+    const contentWithoutItem = buildCatalogFileEmbeddingContent(file);
+    const normalizedPreview = (file.textPreview ?? "").replace(/\s+/g, " ").trim();
+    const previewNeedle = normalizedPreview.length > 0
+      ? normalizedPreview.slice(0, Math.min(normalizedPreview.length, 160))
+      : "";
+
+    const contentClauses: SQL[] = [
+      eq(catalogItemEmbeddings.content, contentWithItem),
+      eq(catalogItemEmbeddings.content, contentWithoutItem),
+    ];
+
+    if (previewNeedle.length > 0) {
+      const fuzzyMatch = and(
+        ilike(
+          catalogItemEmbeddings.content,
+          `%anexo ${escapeLikePattern(file.originalName)}.%`,
+        ),
+        ilike(
+          catalogItemEmbeddings.content,
+          `%${escapeLikePattern(previewNeedle)}%`,
+        ),
+      );
+      if (fuzzyMatch) {
+        contentClauses.push(fuzzyMatch);
+      }
+    }
+
+    return await db.transaction(async (tx) => {
+      await tx
+        .delete(catalogItemEmbeddings)
+        .where(
+          and(
+            eq(catalogItemEmbeddings.catalogItemId, file.catalogItemId),
+            eq(catalogItemEmbeddings.source, "file"),
+            or(...contentClauses),
+          ),
+        );
+
+      const [deleted] = await tx
+        .delete(catalogFiles)
+        .where(eq(catalogFiles.id, id))
+        .returning();
+
+      return deleted;
+    });
   }
 
   async listInstructions(params?: { scopes?: InstructionScope[] }): Promise<SystemInstruction[]> {
