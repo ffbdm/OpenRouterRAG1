@@ -11,11 +11,9 @@ import { registerInstructionRoutes } from "./instruction-routes";
 import { defaultInstructionSlugs, ensureDefaultInstructions, getDefaultInstructionContent } from "./instruction-defaults";
 import { normalizeIntent, planSearches, type ChatIntent } from "./chat-intents";
 import { registerWhatsAppRoutes } from "./whatsapp-routes";
-
-type Message = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
+import { parseOptionalPositiveInt } from "./text-chunking";
+import { inferUseCatalogFiles } from "./catalog-files-intent";
+import { buildClassificationMessages, type Message } from "./chat-prompts";
 
 type ChatHistoryMessage = {
   role: "user" | "assistant";
@@ -38,8 +36,9 @@ function resolveLimit(rawLimit?: number, fallback = 5, max = 10): number {
 }
 
 const chatHistoryLimit = resolveLimit(Number(process.env.CHAT_HISTORY_CONTEXT_LIMIT), 6, 20);
-// Resumo: dispara a partir de 2 mensagens válidas e corta o número de mensagens pelo limite configurado.
-const historySummaryTrigger = 2;
+// Resumo: por padrão dispara a partir de 1 mensagem no histórico (ou seja, já no 2º envio do usuário, se o client enviar history).
+// Pode ser ajustado via CHAT_HISTORY_SUMMARY_TRIGGER.
+const historySummaryTrigger = resolveLimit(Number(process.env.CHAT_HISTORY_SUMMARY_TRIGGER), 1, 10);
 const historySummaryCharLimit = 800;
 const historySummaryMessageLimit = chatHistoryLimit;
 
@@ -108,6 +107,30 @@ function buildCatalogPayload(query: string, result: CatalogHybridSearchResult): 
     .join(" || ");
 
   return `Busca híbrida (vetorial + lexical) para "${query}": ${summary}`;
+}
+
+function buildCatalogFilesPayload(params: {
+  query: string;
+  hybrid: CatalogHybridSearchResult;
+  resultsByItemId: Record<number, { originalName: string; snippet: string }[]>;
+}): string {
+  const entries = params.hybrid.results
+    .map((hit) => {
+      const chunks = params.resultsByItemId[hit.item.id] ?? [];
+      if (chunks.length === 0) return undefined;
+      const chunkSummary = chunks
+        .map((chunk, index) => `${index + 1}. ${chunk.originalName}: ${chunk.snippet}`)
+        .join(" || ");
+      return `${hit.item.name}: ${chunkSummary}`;
+    })
+    .filter(Boolean) as string[];
+
+  if (entries.length === 0) {
+    return `Trechos relevantes de anexos (enriquecimento; não altera ranking) para "${params.query}": nenhum trecho encontrado.`;
+  }
+
+  const joined = entries.join(" || ");
+  return `Trechos relevantes de anexos (enriquecimento; não altera ranking) para "${params.query}": ${joined}`;
 }
 
 function logHybridStats(label: string, result: CatalogHybridSearchResult) {
@@ -488,15 +511,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const historySummary = historySignals?.summary;
       const catalogKeywordQuery = historySignals?.catalogQuery;
 
-      const classificationHistoryMessages: Message[] = historySummary
-        ? [{ role: "system", content: `Resumo automático do histórico: ${historySummary}` }]
-        : [];
-
-      const classificationMessages: Message[] = [
-        { role: "system", content: classificationContent },
-        ...classificationHistoryMessages,
-        { role: "user", content: userMessage },
-      ];
+      const classificationMessages = buildClassificationMessages({
+        classificationContent,
+        historySummary,
+        userMessage,
+      });
 
       console.log("[OPENROUTER] Chamada de classificação iniciada");
 
@@ -508,8 +527,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             type: "object",
             properties: {
               intent: { type: "string", enum: ["FAQ", "CATALOG", "MIST", "OTHER"] },
+              useCatalogFiles: { type: "boolean" },
             },
-            required: ["intent"],
+            required: ["intent", "useCatalogFiles"],
             additionalProperties: false,
           },
           strict: true,
@@ -531,6 +551,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let classifyResponseMeta: { status: number; requestId: string | null } | undefined;
       let classificationModelUsed: string | undefined;
       let rawIntent = "";
+      let useCatalogFiles = false;
 
       for (const [index, model] of classificationModelsToTry.entries()) {
         const hasNextModel = index < classificationModelsToTry.length - 1;
@@ -579,11 +600,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Tenta extrair JSON quando response_format é respeitado; senão, usa o conteúdo direto.
           let candidateIntent = rawContent;
+          let candidateUseCatalogFiles: boolean | undefined;
           if (rawContent.trim().startsWith("{")) {
             try {
               const parsed = JSON.parse(rawContent);
               if (parsed && typeof parsed.intent === "string") {
                 candidateIntent = parsed.intent;
+              }
+              if (parsed && typeof parsed.useCatalogFiles === "boolean") {
+                candidateUseCatalogFiles = parsed.useCatalogFiles;
               }
             } catch (error) {
               console.warn("[CLASSIFY] Falha ao fazer parse do JSON de intenção:", error);
@@ -596,6 +621,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             requestId: classifyResponse.headers.get("x-request-id"),
           };
           rawIntent = candidateIntent;
+          useCatalogFiles = typeof candidateUseCatalogFiles === "boolean"
+            ? candidateUseCatalogFiles
+            : inferUseCatalogFiles(userMessage);
           classificationModelUsed = model;
 
           if (!candidateIntent.trim() && hasNextModel) {
@@ -635,7 +663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const intent: ChatIntent = normalizeIntent(rawIntent);
 
-      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed})`);
+      console.log(`[CLASSIFY] Intenção: ${intent} (raw="${rawIntent || "vazio"}" | model=${classificationModelUsed}) useCatalogFiles=${useCatalogFiles}`);
       console.log("[MODELS] classify usado:", classificationModelUsed, "| answer:", answerModel);
 
       console.log(`[CHAT] Histórico recebido: ${(history?.length ?? 0)} mensagens (limite configurado=${chatHistoryLimit}).`);
@@ -654,6 +682,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let catalogItemsFound = 0;
       let ragSource: "hybrid" | undefined;
       let hybridResult: CatalogHybridSearchResult | undefined;
+      let catalogFilesUsed = false;
+      let catalogFilesChunks = 0;
+      let catalogFilesTimingMs = 0;
 
       const contextSections: string[] = [
         historySection,
@@ -705,29 +736,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        contextSections.push("FAQs relevantes: nenhuma consulta executada para esta pergunta.");
 	      }
 
-      if (searchPlan.runCatalog) {
-        databaseQueried = true;
-        ragSource = "hybrid";
-        const resolvedLimit = resolveLimit(undefined, 5, 15);
-        console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
+	      if (searchPlan.runCatalog) {
+	        databaseQueried = true;
+	        ragSource = "hybrid";
+	        const resolvedLimit = resolveLimit(undefined, 5, 15);
+	        console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
 
-        const keywordQueryEnabled = process.env.CATALOG_QUERY_KEYWORDS_ENABLED === "true";
-        const catalogSearchQuery = keywordQueryEnabled && catalogKeywordQuery
-          ? catalogKeywordQuery
-          : userMessage;
+	        const keywordQueryEnabled = process.env.CATALOG_QUERY_KEYWORDS_ENABLED === "true";
+	        const resolvedCatalogKeywordQuery = catalogKeywordQuery?.trim();
+	        const catalogSearchQuery = keywordQueryEnabled && resolvedCatalogKeywordQuery
+	          ? resolvedCatalogKeywordQuery
+	          : userMessage;
 
-        if (keywordQueryEnabled && catalogKeywordQuery) {
-          console.log(`[RAG] catalogQuery gerada a partir do resumo: "${catalogKeywordQuery}"`);
-        }
+	        const catalogSearchContext = keywordQueryEnabled && !resolvedCatalogKeywordQuery && historySummary
+	          ? historySummary
+	          : queryContext;
 
-        const hybridSearch = await storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit);
-        catalogItemsFound = hybridSearch.results.length;
-        hybridResult = hybridSearch;
+	        console.log(`[RAG] Query catálogo (searchCatalogHybrid) => "${truncateForLog(catalogSearchQuery, 240)}"`);
+	        if (catalogSearchContext?.trim()) {
+	          const contextPreview = catalogSearchContext.replace(/\s+/g, " ").trim();
+	          console.log(`[RAG] Query catálogo :: queryContext => "${truncateForLog(contextPreview, 240)}"`);
+	        }
+
+	        if (keywordQueryEnabled && resolvedCatalogKeywordQuery) {
+	          console.log(`[RAG] catalogQuery gerada a partir do resumo: "${truncateForLog(resolvedCatalogKeywordQuery, 240)}"`);
+	        } else if (keywordQueryEnabled && historySummary) {
+	          console.log(`[RAG] Sem catalogQuery; usando resumo do histórico como queryContext (summarizeHistory).`);
+	        }
+
+	        const hybridSearch = await storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit, { queryContext: catalogSearchContext });
+	        catalogItemsFound = hybridSearch.results.length;
+	        hybridResult = hybridSearch;
 
         logHybridStats("RAG catalog", hybridSearch);
 
         const catalogPayload = buildCatalogPayload(userMessage, hybridSearch);
         contextSections.push(catalogPayload);
+
+        if (useCatalogFiles && hybridSearch.results.length > 0) {
+          const topN = parseOptionalPositiveInt(process.env.CATALOG_FILES_ENRICH_TOP_N) ?? 5;
+          const catalogItemIds = hybridSearch.results
+            .slice(0, Math.max(1, Math.min(topN, hybridSearch.results.length)))
+            .map((hit) => hit.item.id);
+
+          const filesVectorQuery = catalogKeywordQuery?.trim() || userMessage;
+          console.log(`[RAG] Enriquecimento por anexos habilitado: itens=${catalogItemIds.length} (topN=${topN})`);
+          console.log(`[RAG] Query vetorial (anexos): ${filesVectorQuery === userMessage ? "userMessage" : "catalogQuery"}`);
+          const filesResult = await storage.searchCatalogFilesVector({ query: filesVectorQuery, catalogItemIds });
+          catalogFilesUsed = true;
+          catalogFilesChunks = filesResult.vectorCount;
+          catalogFilesTimingMs = filesResult.timingMs;
+
+          const filesPayload = buildCatalogFilesPayload({
+            query: userMessage,
+            hybrid: hybridSearch,
+            resultsByItemId: filesResult.resultsByItemId,
+          });
+
+          const maxChars = parseOptionalPositiveInt(process.env.CATALOG_FILES_CONTEXT_MAX_CHARS) ?? 2500;
+          contextSections.push(filesPayload.length > maxChars ? `${filesPayload.slice(0, Math.max(0, maxChars - 1))}…` : filesPayload);
+
+          logToolPayload({
+            toolName: "searchCatalogFiles",
+            args: {
+              query: userMessage,
+              searchQuery: filesVectorQuery,
+              itemIds: catalogItemIds,
+              intent,
+              useCatalogFiles,
+              timingMs: filesResult.timingMs,
+              fallbackReason: filesResult.fallbackReason,
+            },
+            resultCount: filesResult.vectorCount,
+            aiPayload: filesPayload,
+          });
+        } else {
+          contextSections.push("Trechos relevantes de anexos: não consultados para esta pergunta.");
+        }
 
         logToolPayload({
           toolName: "searchCatalog",
@@ -831,6 +916,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 timings: hybridResult.timings,
               }
             : undefined,
+          useCatalogFiles,
+          catalogFiles: catalogFilesUsed
+            ? {
+                used: true,
+                chunks: catalogFilesChunks,
+                timingMs: catalogFilesTimingMs,
+              }
+            : {
+                used: false,
+              },
         }
       });
     } catch (error) {
