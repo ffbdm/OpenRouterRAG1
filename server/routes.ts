@@ -50,6 +50,36 @@ function truncateForLog(content: string, limit = systemInstructionLogLimit): str
   return `${content.slice(0, limit)}...`;
 }
 
+const openRouterTimeoutMs = parseOptionalPositiveInt(process.env.OPENROUTER_TIMEOUT_MS) ?? 30_000;
+const openRouterSummaryTimeoutMs = parseOptionalPositiveInt(process.env.OPENROUTER_TIMEOUT_SUMMARY_MS)
+  ?? Math.min(openRouterTimeoutMs, 8_000);
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  label: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const elapsedMs = Date.now() - startedAt;
+    console.log(`[HTTP] ${label} status=${response.status} elapsedMs=${elapsedMs}`);
+    return response;
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    if (controller.signal.aborted) {
+      throw new Error(`[HTTP] ${label} timeout after ${timeoutMs}ms (elapsedMs=${elapsedMs})`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 function formatCatalogHit(hit: CatalogHybridHit, index?: number): string {
   const tagList = hit.item.tags.join(", ") || "sem tags";
   const price = Number.isFinite(hit.item.price) ? `R$${hit.item.price.toFixed(2)}` : "preço indisponível";
@@ -188,6 +218,8 @@ async function summarizeHistory(
 
   if (normalizedHistory.length < historySummaryTrigger) return undefined;
 
+  console.log(`[SUMMARY] Disparado: historyLen=${history.length} normalizedLen=${normalizedHistory.length} model=${model}`);
+
   const summaryResponseFormat = {
     type: "json_schema" as const,
     json_schema: {
@@ -233,22 +265,27 @@ async function summarizeHistory(
 
   try {
     const callSummary = async (useResponseFormat: boolean) => {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
-          "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
-          "Content-Type": "application/json",
+      const response = await fetchWithTimeout(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+            "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: summaryMessages,
+            temperature: 0,
+            max_tokens: 256,
+            ...(useResponseFormat ? { response_format: summaryResponseFormat } : {}),
+          }),
         },
-        body: JSON.stringify({
-          model,
-          messages: summaryMessages,
-          temperature: 0,
-          max_tokens: 256,
-          ...(useResponseFormat ? { response_format: summaryResponseFormat } : {}),
-        }),
-      });
+        openRouterSummaryTimeoutMs,
+        "[OPENROUTER] summarizeHistory",
+      );
 
       return response;
     };
@@ -446,6 +483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[DEBUG] API Key length:", apiKey.length, "First 10 chars:", apiKey.substring(0, 10));
       console.log("[MODELS] classify candidates:", classificationModelsToTry.join(" -> "), "| answer:", answerModel);
 
+      console.log(`[SUMMARY] Config: trigger=${historySummaryTrigger} historyLen=${history?.length ?? 0} timeoutMs=${openRouterSummaryTimeoutMs}`);
       const historySignals = await summarizeHistory(history, userMessage, apiKey, answerModel);
       const historySummary = historySignals?.summary;
       const catalogKeywordQuery = historySignals?.catalogQuery;
@@ -499,23 +537,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[OPENROUTER] Chamada de classificação iniciada (model=${model})`);
 
         try {
-          const classifyResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${apiKey}`,
-              "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
-              "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
-              "Content-Type": "application/json",
+          const classifyResponse = await fetchWithTimeout(
+            "https://openrouter.ai/api/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+                "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model,
+                messages: classificationMessages,
+                temperature: 0,
+                // Espaço para modelos que gastam tokens em reasoning antes do conteúdo JSON.
+                max_tokens: 256,
+                response_format: classificationResponseFormat,
+              }),
             },
-            body: JSON.stringify({
-              model,
-              messages: classificationMessages,
-              temperature: 0,
-              // Espaço para modelos que gastam tokens em reasoning antes do conteúdo JSON.
-              max_tokens: 256,
-              response_format: classificationResponseFormat,
-            }),
-          });
+            openRouterTimeoutMs,
+            `[OPENROUTER] classify model=${model}`,
+          );
 
           if (!classifyResponse.ok) {
             const errorBody = await classifyResponse.text();
@@ -573,7 +616,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!classificationModelUsed) {
-        throw new Error("Não foi possível classificar a intenção com os modelos configurados.");
+        console.warn("[CLASSIFY] Não foi possível classificar com os modelos configurados; continuando com fallback intent=OTHER.");
+        rawIntent = "OTHER";
+        useCatalogFiles = inferUseCatalogFiles(userMessage);
+        classificationModelUsed = "fallback:heuristic";
       }
 
       if (!rawIntent.trim()) {
@@ -722,20 +768,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`     Content: ${loggedContent}`);
       });
 
-      const finalResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
-          "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
-          "Content-Type": "application/json",
+      const finalResponse = await fetchWithTimeout(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5000",
+            "X-Title": process.env.OPENROUTER_SITE_NAME || "RAG Chat",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: answerModel,
+            messages: answerMessages,
+            temperature: 0.7,
+          }),
         },
-        body: JSON.stringify({
-          model: answerModel,
-          messages: answerMessages,
-          temperature: 0.7,
-        }),
-      });
+        openRouterTimeoutMs,
+        `[OPENROUTER] answer model=${answerModel}`,
+      );
 
       if (!finalResponse.ok) {
         const errorBody = await finalResponse.text();
