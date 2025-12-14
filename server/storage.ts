@@ -647,7 +647,15 @@ export class DatabaseStorage implements IStorage {
     const finalLimit = clampCatalogLimit(limit);
     const startedAt = Date.now();
 
-    const effectiveQuery = query;
+    const effectiveQuery = combineQueryWithContext(query, options?.queryContext);
+
+    const contextPreview = options?.queryContext?.replace(/\s+/g, " ").trim();
+    if (contextPreview) {
+      console.log(`[RAG] searchCatalogHybrid :: queryContext => ${contextPreview.slice(0, 240)}`);
+    }
+    if (effectiveQuery !== query) {
+      console.log(`[RAG] searchCatalogHybrid :: query+context aplicado => ${effectiveQuery.slice(0, 240)}`);
+    }
 
     const enhanced = process.env.HYBRID_SEARCH_ENHANCED === "true";
     const lexicalCandidateMultiplier = Number(process.env.CATALOG_LEXICAL_CANDIDATE_MULTIPLIER ?? 6);

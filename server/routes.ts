@@ -690,24 +690,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        contextSections.push("FAQs relevantes: nenhuma consulta executada para esta pergunta.");
 	      }
 
-      if (searchPlan.runCatalog) {
-        databaseQueried = true;
-        ragSource = "hybrid";
-        const resolvedLimit = resolveLimit(undefined, 5, 15);
-        console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
+	      if (searchPlan.runCatalog) {
+	        databaseQueried = true;
+	        ragSource = "hybrid";
+	        const resolvedLimit = resolveLimit(undefined, 5, 15);
+	        console.log("\n🔍 [BUSCA] Executando searchCatalogHybrid");
 
-        const keywordQueryEnabled = process.env.CATALOG_QUERY_KEYWORDS_ENABLED === "true";
-        const catalogSearchQuery = keywordQueryEnabled && catalogKeywordQuery
-          ? catalogKeywordQuery
-          : userMessage;
+	        const keywordQueryEnabled = process.env.CATALOG_QUERY_KEYWORDS_ENABLED === "true";
+	        const resolvedCatalogKeywordQuery = catalogKeywordQuery?.trim();
+	        const catalogSearchQuery = keywordQueryEnabled && resolvedCatalogKeywordQuery
+	          ? resolvedCatalogKeywordQuery
+	          : userMessage;
 
-        if (keywordQueryEnabled && catalogKeywordQuery) {
-          console.log(`[RAG] catalogQuery gerada a partir do resumo: "${catalogKeywordQuery}"`);
-        }
+	        const catalogSearchContext = keywordQueryEnabled && !resolvedCatalogKeywordQuery && historySummary
+	          ? historySummary
+	          : queryContext;
 
-        const hybridSearch = await storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit);
-        catalogItemsFound = hybridSearch.results.length;
-        hybridResult = hybridSearch;
+	        console.log(`[RAG] Query catálogo (searchCatalogHybrid) => "${truncateForLog(catalogSearchQuery, 240)}"`);
+	        if (catalogSearchContext?.trim()) {
+	          const contextPreview = catalogSearchContext.replace(/\s+/g, " ").trim();
+	          console.log(`[RAG] Query catálogo :: queryContext => "${truncateForLog(contextPreview, 240)}"`);
+	        }
+
+	        if (keywordQueryEnabled && resolvedCatalogKeywordQuery) {
+	          console.log(`[RAG] catalogQuery gerada a partir do resumo: "${truncateForLog(resolvedCatalogKeywordQuery, 240)}"`);
+	        } else if (keywordQueryEnabled && historySummary) {
+	          console.log(`[RAG] Sem catalogQuery; usando resumo do histórico como queryContext (summarizeHistory).`);
+	        }
+
+	        const hybridSearch = await storage.searchCatalogHybrid(catalogSearchQuery, resolvedLimit, { queryContext: catalogSearchContext });
+	        catalogItemsFound = hybridSearch.results.length;
+	        hybridResult = hybridSearch;
 
         logHybridStats("RAG catalog", hybridSearch);
 
