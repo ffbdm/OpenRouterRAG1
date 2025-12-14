@@ -202,7 +202,7 @@ A consulta vetorial calcula uma distância (via pgvector):
 - `distance = catalog_item_embeddings.embedding <#> queryEmbedding`
 
 Depois aplica opcionalmente:
-- `CATEGLOG_VECTOR_THRESHOLD` (default -0.5)
+- `CATALOG_VECTOR_THRESHOLD` (default -0.5)
 - Se finito, filtra: `distance <= threshold`
 
 Observação:
