@@ -8,6 +8,9 @@ import { logToolPayload } from "./tool-logger";
 
 const DEFAULT_MODEL = process.env.CATALOG_AI_MODEL || "openai/gpt-4o-mini";
 const FALLBACK_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_MAX_OUTPUT_TOKENS = Number.isFinite(Number(process.env.CATALOG_AI_MAX_OUTPUT_TOKENS))
+  ? Math.max(1, Math.floor(Number(process.env.CATALOG_AI_MAX_OUTPUT_TOKENS)))
+  : 1600;
 const DEFAULT_MAX_PRICE = Number.isFinite(Number(process.env.CATALOG_AI_MAX_PRICE))
   ? Number(process.env.CATALOG_AI_MAX_PRICE)
   : 100000;
@@ -253,7 +256,7 @@ export async function generateCatalogSuggestions(
         system: "Gere apenas campos que estão vazios no formulário, com dados curtos e factuais.",
         prompt,
         temperature: 0.4,
-        maxOutputTokens: 800,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       });
 
       object = result.object;
